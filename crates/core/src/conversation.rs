@@ -16,6 +16,8 @@ pub struct Conversation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
+    #[serde(default)]
+    pub remote_id: Option<uuid::Uuid>,
     pub role: Role,
     pub agent: String,
     pub content: String,
@@ -58,6 +60,7 @@ impl Conversation {
             return;
         }
         self.messages.push(Message {
+            remote_id: None,
             role,
             agent: agent.to_owned(),
             content,
@@ -113,6 +116,7 @@ mod tests {
             branch: "task/183".into(),
             title: "Oracle Wallet".into(),
             latest_commit: None,
+            remote_id: None,
         };
         let context = conversation.context(&task, "abc123");
         assert!(context.contains("Akh Task #183"));

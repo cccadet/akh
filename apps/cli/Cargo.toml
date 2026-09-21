@@ -8,6 +8,8 @@ name = "akh"
 path = "src/main.rs"
 
 [dependencies]
+akh-client = { path = "../../crates/client" }
 akh-core = { path = "../../crates/core" }
 anyhow.workspace = true
 clap.workspace = true
+rpassword.workspace = true

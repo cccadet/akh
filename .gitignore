@@ -22,3 +22,7 @@ Desktop.ini
 
 # Rust build artifacts
 /target/
+
+# Desktop frontend artifacts
+node_modules/
+dist/

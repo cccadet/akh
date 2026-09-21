@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
+    pub server: Option<String>,
+    #[serde(default)]
+    pub token: Option<String>,
     #[serde(default = "default_worktree_root")]
     pub worktree_root: PathBuf,
     #[serde(default)]
@@ -21,6 +25,8 @@ pub struct Config {
 pub struct ProjectLink {
     pub path: PathBuf,
     pub repository_url: Option<String>,
+    #[serde(default)]
+    pub remote_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +37,8 @@ pub struct TaskLink {
     pub title: String,
     #[serde(default)]
     pub latest_commit: Option<String>,
+    #[serde(default)]
+    pub remote_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +51,8 @@ pub struct AgentProfile {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            server: None,
+            token: None,
             worktree_root: default_worktree_root(),
             projects: BTreeMap::new(),
             tasks: BTreeMap::new(),
@@ -166,6 +176,7 @@ mod tests {
             ProjectLink {
                 path: PathBuf::from("/tmp/akh"),
                 repository_url: Some("https://github.com/cccadet/akh.git".into()),
+                remote_id: None,
             },
         );
         config.save_to(&path).unwrap();

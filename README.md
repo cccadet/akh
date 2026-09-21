@@ -62,3 +62,51 @@ compartilhado. Um PTY transparente preserva a interface original do agente no
 terminal do sistema enquanto captura input e output. As conversas permanecem
 somente em `~/.akh/conversations` nesta etapa; sincronização entre máquinas faz
 parte do M2.
+
+## M2: servidor e sincronização
+
+O servidor usa Axum, Tokio, SQLx e PostgreSQL. Para o ambiente local:
+
+```bash
+docker compose up -d
+
+# PowerShell
+$env:DATABASE_URL = "postgres://akh:akh-local-only@127.0.0.1:5432/akh"
+cargo run -p akh-server
+```
+
+Na primeira conexão, registre o usuário e sincronize os dados locais:
+
+```bash
+akh register --server http://127.0.0.1:3000 --email you@example.com --username you
+akh sync
+```
+
+O servidor recebe somente projects, tasks, mensagens, sessões, handoffs e
+referências Git. Caminhos locais, worktrees e arquivos não commitados não são
+enviados.
+
+## M3: Desktop
+
+O Desktop usa Tauri 2, React e TypeScript:
+
+```bash
+cd apps/desktop
+npm install
+npm run build
+npm run tauri dev
+```
+
+A interface mostra vínculos locais, tasks, estado local/compartilhado, último
+agente e launchers que abrem Claude ou Codex no terminal do sistema.
+
+## M4: workflow de equipe
+
+Depois de sincronizar uma task, ela pode ser entregue a outro usuário:
+
+```bash
+akh handoff 1 --to USER_UUID --note "Implementação pronta; faltam testes no Windows."
+```
+
+O servidor registra sessões de agente, handoffs e notificações. A GUI também
+oferece a ação de handoff e diferencia estado local de estado compartilhado.
