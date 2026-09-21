@@ -27,6 +27,10 @@ pub struct ProjectLink {
 pub struct TaskLink {
     pub project: String,
     pub branch: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub latest_commit: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +77,13 @@ impl Config {
 
     pub fn save(&self) -> Result<()> {
         self.save_to(&Self::path()?)
+    }
+
+    pub fn data_dir() -> Result<PathBuf> {
+        Self::path()?
+            .parent()
+            .map(Path::to_path_buf)
+            .context("configuration path has no parent")
     }
 
     pub fn save_to(&self, path: &Path) -> Result<()> {

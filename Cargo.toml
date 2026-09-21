@@ -9,5 +9,8 @@ version = "0.1.0"
 [workspace.dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+crossterm = "0.29"
+portable-pty = "0.9"
 serde = { version = "1", features = ["derive"] }
+strip-ansi-escapes = "0.2"
 toml = "0.9"

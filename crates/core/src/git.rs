@@ -33,6 +33,10 @@ impl GitRepository {
         git_status(&self.root, &["fetch", "origin", "--prune"])
     }
 
+    pub fn head(&self) -> Result<String> {
+        git_output(&self.root, &["rev-parse", "HEAD"])
+    }
+
     pub fn validate_branch(branch: &str) -> Result<()> {
         let status = Command::new("git")
             .args(["check-ref-format", "--branch", branch])
