@@ -1,0 +1,13 @@
+[package]
+name = "akh-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "akh"
+path = "src/main.rs"
+
+[dependencies]
+akh-core = { path = "../../crates/core" }
+anyhow.workspace = true
+clap.workspace = true

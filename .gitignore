@@ -19,3 +19,6 @@ Desktop.ini
 
 # Local logs
 *.log
+
+# Rust build artifacts
+/target/
