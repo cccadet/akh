@@ -1,0 +1,21 @@
+# Local Akh state and machine-specific configuration
+.akh/
+.codex/
+.claude/
+
+# Environment files and local overrides
+.env
+.env.*
+!.env.example
+*.local
+config.local.*
+
+# Editor and operating-system metadata
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local logs
+*.log
