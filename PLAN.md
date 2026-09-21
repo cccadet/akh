@@ -1,178 +1,792 @@
 # Akh — Plano do Produto
 
-## Visão do produto
+# 1. Visão do produto
 
-**Akh** é uma camada de continuidade de tarefas entre desenvolvedores e coding agents. Não é IDE, agente novo ou terminal: mantém o contexto de uma tarefa enquanto pessoas e agentes, como Claude Code e Codex, entram e saem.
+O produto não é uma IDE, não é um novo coding agent e não é um terminal.
 
-```text
-Developer A → Claude Code ┐
-                           ├→ Task Akh → conversa + referência Git
-Developer B → Codex      ──┘
-```
+Ele é uma camada de **continuidade de tarefas entre desenvolvedores e coding agents**.
 
-A unidade central é a **Task**:
+A unidade principal é:
 
 ```text
 Task
-├── projeto
-├── branch e commit compartilhado
-├── conversa compartilhada
-├── desenvolvedores participantes
-└── agentes usados
+ ├── Projeto
+ ├── Branch
+ ├── Commit
+ ├── Conversa compartilhada
+ ├── Desenvolvedores
+ └── Agentes utilizados
 ```
 
-João pode trabalhar na Task #183 com Claude Code, fazer commit e push, e Cristian continuar a mesma task com Codex. O novo agente recebe a conversa relevante e trabalha sobre o mesmo estado Git commitado.
-
-## Princípios
-
-- Agentes executam localmente; o servidor nunca executa Claude, Codex ou outros agentes.
-- Git é a fonte da verdade para código, branches, commits, merge, histórico e sincronização.
-- Só código commitado e disponibilizado no remoto é compartilhável entre máquinas. Mudanças não commitadas não são sincronizadas.
-- Sincronizamos essencialmente entrada da pessoa e resposta do agente, não reasoning interno, tool calls, shell trace ou todos os comandos.
-- Worktrees, caminhos locais e preferências de terminal são locais e não vão ao servidor.
-- Claude, Codex e OpenCode continuam sendo as ferramentas originais, usadas no terminal do sistema.
-- Wrappers como Headroom devem funcionar por comando configurável, sem acoplamento.
-
-## Arquitetura local e team
+A ideia é permitir algo como:
 
 ```text
-                         Team Server
-              users · projects · tasks · messages
-                 agent sessions · Git references
-                              │
-                        HTTPS / WebSocket
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-            Máquina de João       Máquina de Cristian
-            CLI + Desktop + Core  CLI + Desktop + Core
-                    │                   │
-            Claude/Codex/etc.     Claude/Codex/etc.
-                    │                   │
-            Git + worktrees       Git + worktrees
-                    └────── Git remote ─┘
+João
+  ↓
+Claude Code
+  ↓
+Task #183
+  ↓
+commit + push
+
+Cristian
+  ↓
+Codex
+  ↓
+continua Task #183
 ```
 
-O Git remote pode ser GitHub, GitLab, Gitea, Forgejo, Azure DevOps ou Bitbucket. Akh não substitui nenhum deles.
+O Codex recebe o histórico relevante do Claude e trabalha sobre o mesmo estado Git commitado.
 
-### Modo local
+---
 
-Uma pessoa roda servidor, banco, cliente, Git e agentes na mesma máquina, por exemplo com `akh-server` ou Docker Compose. O cliente aponta para localhost. Inicialmente, Postgres no modo local mantém o comportamento igual ao modo team; SQLite pode vir depois.
+# 2. Princípios do projeto
 
-### Modo team
+Eu manteria estas regras desde o começo:
 
-O servidor fica em um endpoint da empresa, como `https://agents.interno.empresa`. Cada pessoa instala somente o cliente local. Os agentes e repositórios seguem nas máquinas de cada desenvolvedor.
+- **Agentes executam localmente.**
+- **O servidor nunca executa Codex/Claude/OpenCode.**
+- **Git é a fonte da verdade para código.**
+- **Só código commitado/pushado é compartilhável entre máquinas.**
+- **Não sincronizamos arquivos não commitados.**
+- **Não sincronizamos reasoning interno.**
+- **Não precisamos registrar todas as tool calls.**
+- **Não precisamos registrar todos os comandos de shell.**
+- **Sincronizamos essencialmente input do usuário + resposta do agente.**
+- **Worktrees existem apenas localmente.**
+- **Caminhos locais nunca vão para o servidor.**
+- **O terminal utilizado é o terminal normal do desenvolvedor.**
+- **Claude/Codex/OpenCode continuam sendo as ferramentas originais.**
+- **Wrappers como Headroom devem funcionar naturalmente.**
 
-## Componentes
+Isso mantém o produto pequeno e pouco acoplado aos agentes.
+
+---
+
+# 3. Arquitetura geral
+
+```text
+                         TEAM SERVER
+                  ┌─────────────────────┐
+                  │                     │
+                  │ Projects            │
+                  │ Tasks               │
+                  │ Conversations       │
+                  │ Git references      │
+                  │ Users               │
+                  │ Agent history       │
+                  │                     │
+                  └──────────┬──────────┘
+                             │
+                      HTTPS / WebSocket
+                             │
+             ┌───────────────┴───────────────┐
+             │                               │
+             ▼                               ▼
+
+    Cristian - máquina local          João - máquina local
+
+    ┌─────────────────────┐          ┌─────────────────────┐
+    │ Local Client        │          │ Local Client        │
+    │                     │          │                     │
+    │ Core                │          │ Core                │
+    │ CLI                 │          │ CLI                 │
+    │ GUI local           │          │ GUI local           │
+    └─────────┬───────────┘          └─────────┬───────────┘
+              │                                │
+        ┌─────┼─────┐                    ┌─────┼─────┐
+        ▼     ▼     ▼                    ▼     ▼     ▼
+     Claude Codex OpenCode            Claude Codex OpenCode
+        │     │     │                    │     │     │
+        └─────┼─────┘                    └─────┼─────┘
+              │                                │
+         Local Git                         Local Git
+         Worktrees                         Worktrees
+              │                                │
+              └────────── Git Server ─────────┘
+```
+
+Git Server pode continuar sendo qualquer coisa:
+
+```text
+GitHub
+GitLab
+Gitea
+Forgejo
+Azure DevOps
+Bitbucket
+```
+
+Nosso produto não tenta substituir nenhum deles.
+
+---
+
+# 4. Modos de execução
+
+## Local
+
+Para uma pessoa usando sozinha:
+
+```text
+Máquina
+ │
+ ├── server
+ ├── local client
+ ├── banco
+ ├── Git
+ ├── Claude
+ └── Codex
+```
+
+Poderia ser algo como:
+
+```bash
+akh server
+```
+
+ou via Docker:
+
+```bash
+docker compose up -d
+```
+
+O cliente aponta para:
+
+```text
+http://localhost:xxxx
+```
+
+---
+
+## Team
+
+O servidor roda em algum lugar da empresa:
+
+```text
+https://agents.interno.empresa
+```
+
+Cada desenvolvedor instala apenas o cliente.
+
+```text
+Developer A ──┐
+Developer B ──┼── Team Server
+Developer C ──┘
+```
+
+Os agentes e repositórios continuam nas máquinas de cada desenvolvedor.
+
+---
+
+# 5. Componentes
+
+Eu dividiria em quatro produtos internos:
+
+```text
+akh-core
+akh-cli
+akh-desktop
+akh-server
+```
 
 ### `akh-core`
 
-Biblioteca Rust compartilhada por CLI e Desktop. Centraliza configuração local, detecção e vínculo de projetos, Git, worktrees, tasks, sincronização, auth, adapters de agentes e lançamento de terminal. CLI e GUI não duplicam lógica de negócio.
+Rust library compartilhada.
+
+Responsável por:
+
+```text
+Git
+worktrees
+configuração local
+projetos locais
+tasks
+agent adapters
+terminal launch
+sync
+auth
+```
+
+CLI e GUI usam exatamente o mesmo core.
+
+---
 
 ### `akh-cli`
 
-Interface rápida no terminal:
+Interface rápida para o desenvolvedor.
+
+Exemplos:
 
 ```bash
 akh login
+
 akh project list
+
 akh project link
+
 akh task list
+
 akh task open 183
+
 akh task 183 claude
+
 akh task 183 codex
 ```
 
+O fluxo principal poderia simplesmente ser:
+
+```bash
+akh task 183 claude
+```
+
+---
+
 ### `akh-desktop`
 
-GUI local pequena, em Tauri, React e TypeScript. É um painel de configuração, vínculo local, tasks, preferências e launchers; não é editor de código, IDE ou terminal.
+GUI local pequena.
+
+Eu usaria:
+
+```text
+Tauri
+React
+TypeScript
+```
+
+Ela não seria uma IDE.
+
+Seria principalmente:
+
+```text
+configuração
+projetos
+vínculos locais
+tasks
+agentes
+preferências
+launchers
+```
+
+---
 
 ### `akh-server`
 
-Servidor central em Rust, Axum, Tokio, SQLx e PostgreSQL. É responsável por auth, usuários, projetos, tasks, conversa, sessões de agente, referências Git e sincronização.
+Servidor central.
 
-## Identificação e vínculo local de projetos
+Provavelmente:
 
-O servidor armazena uma identidade portátil:
+```text
+Rust
+Axum
+Tokio
+SQLx
+PostgreSQL
+```
+
+Responsável exclusivamente por:
+
+```text
+auth
+users
+projects
+tasks
+conversation
+agent activity
+git references
+sync
+```
+
+---
+
+# 6. Identificação dos projetos
+
+O servidor nunca grava:
+
+```text
+C:\Projetos\omni-sql
+```
+
+ou:
+
+```text
+/home/joao/repos/omni-sql
+```
+
+Ele guarda:
 
 ```text
 project_id
 name
 repository_url
-default_branch
 ```
 
-Ele nunca armazena caminhos como `C:\dev\repo` ou `/home/alguem/repo`. Cada cliente mantém seu próprio mapeamento, por exemplo `project 27 → D:\dev\omni-sql`.
-
-Na GUI, um projeto não vinculado mostra o remote e uma ação para selecionar a pasta local. O cliente valida que ela é Git, que o remote corresponde ao projeto, que consegue ler o repositório e executar Git. O vínculo permanece apenas na configuração local.
-
-Dentro de um repositório, a CLI pode descobrir o vínculo automaticamente usando `git rev-parse --show-toplevel` e `git remote get-url origin`.
-
-## Modelo de Task e conversa compartilhada
-
-Exemplo de Task:
+Por exemplo:
 
 ```text
-Task #183 — Suporte a Oracle Wallet
-Project: omni-sql
-Branch: feature/oracle-wallet
-Latest shared commit: abc123
-Status: in_progress
-Current developer: Cristian
-Last agent: Codex
+27
+omni-sql
+git@github.com:empresa/omni-sql.git
 ```
 
-Akh não tenta compartilhar sessões nativas de Claude ou Codex. Ele mantém uma única `TaskConversation`, com mensagens de pessoas e respostas de vários agentes em uma linha do tempo comum.
-
-Cada mensagem começa simples:
+Cada cliente tem seu próprio mapping:
 
 ```text
-id, task_id, user_id, agent, role, content, created_at
+project 27
+→ D:\dev\omni-sql
 ```
 
-`agent` identifica Claude ou Codex, por exemplo, e `role` identifica usuário ou assistente. Não há armazenamento de reasoning.
+João pode ter:
 
-## Git como fonte da verdade
+```text
+project 27
+→ /home/joao/src/omni-sql
+```
 
-O servidor guarda somente referências: repositório, branch e `commit_sha`. O estado compartilhado da task é o último commit conhecido.
+---
+
+# 7. Tela para vincular projeto
+
+A GUI local teria algo assim:
+
+```text
+Projects
+
+Omni SQL
+git@github.com:empresa/omni-sql.git
+
+Local repository:
+Not linked
+
+[ Select repository ]
+```
+
+Selecionando:
+
+```text
+D:\dev\omni-sql
+```
+
+o cliente verifica:
+
+```text
+é Git?
+remote corresponde?
+consigo ler?
+consigo executar Git?
+```
+
+Depois:
+
+```text
+Omni SQL
+
+D:\dev\omni-sql
+
+✓ Linked
+```
+
+Isso fica apenas na configuração local.
+
+---
+
+# 8. Detecção automática
+
+Se você estiver dentro do projeto:
+
+```bash
+cd D:\dev\omni-sql
+akh task list
+```
+
+o cliente pode rodar:
+
+```bash
+git rev-parse --show-toplevel
+git remote get-url origin
+```
+
+e descobrir automaticamente:
+
+```text
+git@github.com:empresa/omni-sql.git
+
+↓
+
+project_id = 27
+```
+
+Então muitas vezes nem será necessário fazer link manual.
+
+---
+
+# 9. Modelo de Task
+
+A Task seria aproximadamente:
+
+```text
+Task #183
+
+Project:
+omni-sql
+
+Title:
+Suporte a Oracle Wallet
+
+Branch:
+feature/oracle-wallet
+
+Latest shared commit:
+abc123
+
+Status:
+in_progress
+
+Current developer:
+Cristian
+
+Last agent:
+Codex
+```
+
+A Task é a sessão universal.
+
+---
+
+# 10. Conversa universal
+
+Em vez de tentarmos compartilhar:
+
+```text
+Claude session
+Codex session
+```
+
+mantemos nossa própria conversa:
+
+```text
+TaskConversation
+```
+
+Exemplo:
+
+```text
+Cristian / user:
+Implemente suporte a Oracle Wallet.
+
+Claude:
+Implementei...
+
+Cristian / user:
+Agora trate TNS_ADMIN.
+
+Claude:
+Adicionei...
+
+──────── Agent change ────────
+
+João / user:
+Continue e adicione testes.
+
+Codex:
+Analisei a implementação atual...
+```
+
+Do ponto de vista do produto:
+
+```text
+uma task
+uma conversa
+vários agentes
+vários desenvolvedores
+```
+
+---
+
+# 11. O que armazenamos de cada mensagem
+
+Algo simples:
+
+```text
+message_id
+task_id
+user_id
+agent
+role
+content
+timestamp
+```
+
+Por exemplo:
+
+```json
+{
+  "task": 183,
+  "user": "cristian",
+  "agent": "claude",
+  "role": "assistant",
+  "content": "Implementei o suporte ao Oracle Wallet..."
+}
+```
+
+Sem guardar reasoning.
+
+Sem tool call graph.
+
+Sem shell trace.
+
+---
+
+# 12. Git
+
+Git continua responsável por:
+
+```text
+source code
+branches
+commits
+merge
+history
+remote sync
+```
+
+Nosso servidor guarda apenas referências:
+
+```text
+repository
+branch
+commit_sha
+```
+
+---
+
+# 13. Regra sobre código não commitado
+
+A regra seria explícita:
 
 > Estado não commitado é local e não faz parte do handoff.
 
-Quando uma sessão termina, o cliente lê `git rev-parse HEAD` e atualiza o commit da task. Também pode consultar `git status` e deixar a diferença explícita:
+Exemplo:
 
 ```text
-Shared state: conversa sincronizada; commit abc123 enviado
-Local state: 3 arquivos não commitados — não serão compartilhados
+João
+
+branch:
+task/183
+
+remote:
+abc123
+
+local:
+abc123 + alterações não commitadas
 ```
 
-## Worktrees locais
+Cristian recebe:
 
-Cada Task pode ter worktree próprio, por exemplo `D:\dev\worktrees\omni-sql\183` ou `/home/joao/worktrees/omni-sql/183`. O cliente relaciona task, branch e worktree; o servidor não conhece esses caminhos.
+```text
+abc123
+```
 
-## Fluxo `akh task 183 codex`
+E acabou.
 
-Ao executar:
+Não tentamos solucionar isso.
+
+---
+
+# 14. Worktrees
+
+Cada Task pode ter seu worktree local.
+
+Por exemplo:
+
+```text
+D:\dev\worktrees\
+    omni-sql\
+        181\
+        182\
+        183\
+```
+
+Outro desenvolvedor pode usar:
+
+```text
+/home/joao/worktrees/omni-sql/183
+```
+
+Isso não interessa ao servidor.
+
+O cliente sabe:
+
+```text
+task 183
+    ↓
+branch task/183
+    ↓
+local worktree
+```
+
+---
+
+# 15. Abertura de uma Task
+
+Você executa:
 
 ```bash
 akh task 183 codex
 ```
 
-o cliente:
+O cliente faz:
 
-1. consulta a Task e resolve o projeto local;
-2. faz `git fetch`;
-3. localiza ou cria worktree e faz checkout da branch;
-4. verifica o commit compartilhado;
-5. recupera a conversa;
-6. prepara o contexto de continuidade;
-7. inicia Codex no terminal atual.
+```text
+consulta Task #183
+        ↓
+descobre Project #27
+        ↓
+resolve repo local
+        ↓
+git fetch
+        ↓
+encontra/cria worktree
+        ↓
+checkout branch
+        ↓
+verifica commit
+        ↓
+recupera conversa
+        ↓
+prepara contexto
+        ↓
+inicia Codex
+```
 
-`akh task 183 claude` usa o mesmo fluxo para Claude Code. Não existe terminal embutido: a TUI nativa aparece no PowerShell, Windows Terminal, WezTerm ou no terminal já usado. Pela GUI, o launcher abre o terminal configurado já no worktree e executa o comando.
+---
 
-## Agent adapters, profiles e Headroom
+# 16. Terminal
 
-`akh-core` define um `AgentAdapter`. O primeiro recorte suporta Claude Code e Codex CLI; OpenCode, Gemini e Pi vêm depois. O adapter cuida do lançamento, contexto e captura da conversa.
+Não teremos terminal próprio.
 
-Os comandos são configuráveis, o que permite Headroom e ferramentas equivalentes sem que Akh precise saber o que fazem:
+Se você executar:
+
+```bash
+akh task 183 codex
+```
+
+o Codex simplesmente abre **naquele terminal**.
+
+Visualmente:
+
+```text
+PowerShell
+
+PS> akh task 183 codex
+
+Task #183
+Oracle Wallet
+
+Project: omni-sql
+Branch: feature/oracle-wallet
+
+Loading shared context...
+
+╭──────────── Codex ─────────────╮
+│                                │
+│ >                              │
+╰────────────────────────────────╯
+```
+
+É a TUI original do Codex.
+
+---
+
+# 17. GUI abrindo terminal
+
+Na interface desktop:
+
+```text
+Task #183
+Oracle Wallet
+
+Agent
+
+[ Claude ▼ ]
+
+[ Open ]
+```
+
+Ao clicar, o cliente abre:
+
+```text
+Windows Terminal
+WezTerm
+Kitty
+Konsole
+etc.
+```
+
+no worktree da Task e executa:
+
+```bash
+akh task 183 claude
+```
+
+---
+
+# 18. Terminal configurável
+
+Configuração local:
+
+```toml
+[terminal]
+type = "windows-terminal"
+```
+
+Ou:
+
+```toml
+[terminal]
+command = "wezterm"
+```
+
+No futuro:
+
+```text
+Windows Terminal
+WezTerm
+Kitty
+Alacritty
+Konsole
+GNOME Terminal
+Custom
+```
+
+---
+
+# 19. Agent adapters
+
+O core possuiria:
+
+```text
+AgentAdapter
+   ├── Claude
+   ├── Codex
+   ├── OpenCode
+   ├── Gemini
+   └── Pi
+```
+
+Mas começaria somente com:
+
+```text
+Claude Code
+Codex CLI
+```
+
+---
+
+# 20. Comando de agente configurável
+
+Isso resolve Headroom e ferramentas semelhantes.
+
+Default:
 
 ```toml
 [agents.claude]
@@ -180,78 +794,416 @@ command = "claude"
 
 [agents.codex]
 command = "codex"
+```
+
+Com Headroom:
+
+```toml
+[agents.claude]
+command = "headroom"
+args = ["wrap", "claude"]
+
+[agents.codex]
+command = "headroom"
+args = ["wrap", "codex"]
+```
+
+Nosso produto não precisa saber o que Headroom faz.
+
+Ele só executa o comando configurado.
+
+---
+
+# 21. Profiles
+
+Eu provavelmente adicionaria profiles:
+
+```text
+Claude
+Claude + Headroom
+Codex
+Codex + Headroom
+```
+
+Configuração:
+
+```toml
+[profiles.claude]
+agent = "claude"
+command = ["claude"]
 
 [profiles.claude-headroom]
 agent = "claude"
-command = "headroom"
-args = ["wrap", "claude"]
+command = ["headroom", "wrap", "claude"]
 ```
 
-Profiles podem ser usados diretamente:
+Então:
 
 ```bash
 akh task 183 --profile claude-headroom
 ```
 
-## Captura apenas de input/output
+---
 
-O objetivo é capturar:
+# 22. Captura da conversa
+
+Essa é uma das poucas partes que merece cuidado técnico.
+
+Queremos:
 
 ```text
-entrada da pessoa → saída do agente
+User input
+Agent output
 ```
 
-Não é necessário capturar tools, reasoning, comandos shell ou eventos internos. Quando um agente oferece hooks, logs ou interfaces estruturadas, eles são preferíveis. Quando não houver, um PTY proxy transparente pode observar stdin/stdout sem criar uma UI própria: entrada e saída permanecem visíveis normalmente no terminal do sistema.
+Não queremos necessariamente:
 
-## Context injection
+```text
+tools
+reasoning
+shell commands
+internal events
+```
 
-Ao entrar em uma task existente, Akh não tenta reconstruir a sessão nativa do agente. Ele injeta um contexto com projeto, task, branch, commit, conversa e a instrução para inspecionar o repositório e continuar.
+Cada agent adapter pode ter sua estratégia de captura.
+
+Conceitualmente:
+
+```text
+ClaudeAdapter
+    ↓
+captura conversa
+
+CodexAdapter
+    ↓
+captura conversa
+```
+
+Onde houver logs/hooks/interfaces estruturadas, usamos isso.
+
+Onde não houver, podemos usar um **PTY proxy transparente**.
+
+Importante: isso **não significa criar um terminal nosso**.
+
+Seria:
+
+```text
+terminal existente
+      │
+      ▼
+akh
+      │
+ transparent PTY
+      │
+      ▼
+Codex
+```
+
+stdin/stdout continuam aparecendo normalmente no terminal atual.
+
+Nosso processo apenas consegue observar o fluxo.
+
+---
+
+# 23. Context injection
+
+Quando você entra em uma Task que já possui histórico, não precisamos recriar uma sessão nativa do agente.
+
+Geramos contexto:
 
 ```text
 You are continuing Task #183.
-PROJECT: omni-sql
-TASK: Oracle Wallet support
-BRANCH: feature/oracle-wallet
-CURRENT COMMIT: abc123
+
+PROJECT
+omni-sql
+
+TASK
+Oracle Wallet support
+
+BRANCH
+feature/oracle-wallet
+
+CURRENT COMMIT
+abc123
 
 SHARED HISTORY
+
+Cristian:
+Implement Oracle Wallet support.
+
+Claude:
+Implemented...
+
+Cristian:
+Add support for TNS_ADMIN.
+
+Claude:
 ...
 
 CURRENT STATE
+
 Inspect the current repository and continue the task.
 ```
 
-No MVP, o histórico completo pode ser usado enquanto pequeno. Depois, o padrão é `summary + últimas 10/20 mensagens`, mantendo a conversa completa no servidor.
+E entregamos isso ao novo agente.
 
-## Handoff entre desenvolvedores e agentes
+---
 
-No handoff entre pessoas, quem entrega faz commit e push. Quem continua faz fetch, checkout da branch/commit, carrega a conversa e abre seu agente. Entre agentes na mesma máquina, a troca usa o mesmo worktree, branch e conversa com outro profile.
+# 24. Histórico grande
 
-Depois pode haver handoff explícito:
+Não devemos mandar 500 mensagens para o agente.
 
-```bash
-akh task handoff 183 --to joao
+Então eventualmente teríamos:
+
+```text
+full conversation
+      ↓
+summary
+      +
+recent messages
 ```
 
-Ele inclui destinatário e nota de trabalho; é informação da equipe, não reconstrução de estado interno de agente.
+Algo como:
 
-## GUI local
+```text
+Task summary
 
-As primeiras telas:
++
+últimas 10/20 mensagens
+```
 
-- **Home**: atividade e atalhos.
-- **Projects**: projetos do servidor, vínculo local, alterar/remover vínculo, abrir pasta ou terminal.
-- **Tasks**: tasks, status, participantes e agente mais recente.
-- **Task**: branch, último commit, conversa e botões para abrir Claude/Codex.
-- **Settings**: endpoint, auth, terminal, raiz de worktrees, comandos e profiles de agentes.
+Isso pode entrar depois.
 
-Uma Web UI administrativa pode vir depois usando a mesma API, mas não é necessária para validar o produto.
+No MVP, podemos enviar o histórico completo enquanto ele ainda for pequeno.
 
-## Auth, modelo de dados e configuração
+---
 
-No começo, auth é usuário/email, senha e token. Não haverá RBAC no MVP: projetos ficam disponíveis a todos os usuários do servidor. Organization, workspace, team, roles e permissions são evolução posterior.
+# 25. Handoff entre desenvolvedores
 
-Tabelas iniciais:
+João trabalha:
+
+```text
+Task #183
+Claude
+```
+
+faz:
+
+```text
+commit
+push
+```
+
+e encerra.
+
+O servidor tem:
+
+```text
+latest commit: abc123
+conversation: atualizada
+```
+
+Cristian faz:
+
+```bash
+akh task 183 codex
+```
+
+O cliente:
+
+```text
+git fetch
+      ↓
+checkout branch
+      ↓
+abc123
+      ↓
+load conversation
+      ↓
+Codex
+```
+
+Esse é o principal fluxo do produto.
+
+---
+
+# 26. Handoff entre agentes no mesmo dev
+
+Ainda mais simples.
+
+Você está usando Claude:
+
+```bash
+akh task 183 claude
+```
+
+fecha.
+
+Depois:
+
+```bash
+akh task 183 codex
+```
+
+Mesmo worktree.
+
+Mesma branch.
+
+Mesma conversa.
+
+Outro agente.
+
+---
+
+# 27. GUI local
+
+Eu imagino quatro telas inicialmente.
+
+```text
+Home
+Projects
+Tasks
+Settings
+```
+
+### Projects
+
+```text
+Omni SQL
+✓ linked
+D:\dev\omni-sql
+
+Backend
+⚠ not linked
+```
+
+### Tasks
+
+```text
+#183 Oracle Wallet
+João → Cristian
+Claude → Codex
+In progress
+
+#182 Connection pooling
+João
+Claude
+In progress
+```
+
+### Task
+
+```text
+#183 Oracle Wallet
+
+Branch
+feature/oracle-wallet
+
+Latest commit
+abc123
+
+Developers
+João → Cristian
+
+Agents
+Claude → Codex
+
+[ Open with Claude ]
+[ Open with Codex ]
+
+Conversation
+...
+```
+
+### Settings
+
+```text
+Server
+Authentication
+Terminal
+Agent commands
+Worktree directory
+Headroom profiles
+```
+
+---
+
+# 28. Server Web UI
+
+Eu não faria imediatamente.
+
+A GUI local pode consumir a mesma API do servidor.
+
+Depois podemos disponibilizar uma Web UI de gerenciamento para:
+
+```text
+projects
+tasks
+team activity
+conversation
+users
+```
+
+Mas não é essencial para provar o produto.
+
+---
+
+# 29. Autenticação
+
+No começo:
+
+```text
+username/email
+password
+token
+```
+
+Sem RBAC.
+
+Cada usuário possui identidade.
+
+Projetos ficam disponíveis para todos os usuários do servidor inicialmente.
+
+Depois pode evoluir para:
+
+```text
+Organization
+Workspace
+Team
+Role
+Permissions
+```
+
+Mas não agora.
+
+---
+
+# 30. Banco
+
+No modo Team:
+
+```text
+PostgreSQL
+```
+
+No modo local existem duas possibilidades.
+
+Eu provavelmente ainda usaria Postgres no Docker inicialmente para manter tudo igual.
+
+Depois podemos oferecer:
+
+```text
+SQLite local
+PostgreSQL team
+```
+
+se houver benefício.
+
+---
+
+# 31. Modelo inicial de dados
+
+Algo aproximadamente assim:
 
 ```text
 users
@@ -262,17 +1214,66 @@ task_participants
 agent_sessions
 ```
 
-Campos essenciais:
+`projects`:
 
 ```text
-projects: id, name, repository_url, default_branch
-tasks: id, project_id, title, description, branch, latest_commit, status,
-       created_by, created_at
-messages: id, task_id, user_id, agent, role, content, created_at
-agent_sessions: id, task_id, user_id, agent, started_at, ended_at
+id
+name
+repository_url
+default_branch
 ```
 
-Configuração local em `~/.akh/config.toml`:
+`tasks`:
+
+```text
+id
+project_id
+title
+description
+branch
+latest_commit
+status
+created_by
+created_at
+```
+
+`messages`:
+
+```text
+id
+task_id
+user_id
+agent
+role
+content
+created_at
+```
+
+`agent_sessions`:
+
+```text
+id
+task_id
+user_id
+agent
+started_at
+ended_at
+```
+
+Caminho local não aparece aqui.
+
+---
+
+# 32. Configuração local
+
+Algo como:
+
+```text
+~/.akh/
+    config.toml
+```
+
+Exemplo:
 
 ```toml
 server = "https://agents.empresa.local"
@@ -281,10 +1282,10 @@ server = "https://agents.empresa.local"
 command = "wt.exe"
 
 [worktrees]
-root = "D:\worktrees"
+root = "D:\\worktrees"
 
 [projects]
-"27" = "D:\dev\omni-sql"
+"27" = "D:\\dev\\omni-sql"
 
 [profiles.claude]
 command = "claude"
@@ -297,34 +1298,369 @@ args = ["wrap", "claude"]
 command = "codex"
 ```
 
-## API inicial e sincronização
+---
 
-API HTTP mínima:
+# 33. API inicial
+
+Algo pequeno:
 
 ```text
 POST /auth/login
-GET, POST /projects
-GET, POST /tasks
-GET, PATCH /tasks/:id
-GET, POST /tasks/:id/messages
+
+GET /projects
+POST /projects
+
+GET /tasks
+POST /tasks
+GET /tasks/:id
+PATCH /tasks/:id
+
+GET /tasks/:id/messages
+POST /tasks/:id/messages
+
 POST /tasks/:id/sessions
 PATCH /sessions/:id
 ```
 
-O cliente envia eventos de mensagem criada, sessão iniciada/encerrada, task atualizada e commit atualizado. HTTP resolve o início; WebSocket entra depois para atualizações em tempo real, timeline e notificações. Redis não é necessário inicialmente.
+Nada muito sofisticado.
 
-## Stack e estrutura
+---
+
+# 34. Sincronização
+
+Não precisamos de arquitetura distribuída complexa.
+
+Cliente simplesmente envia eventos ao servidor.
 
 ```text
-Core e CLI: Rust + clap
-Server: Rust + Axum + Tokio
-Persistência: PostgreSQL + SQLx
-Desktop: Tauri 2
-Frontend desktop: React + TypeScript
+message created
+session started
+session ended
+task updated
+commit updated
 ```
+
+HTTP resolve praticamente tudo.
+
+WebSocket pode entrar depois para:
+
+```text
+updates em tempo real
+timeline
+notificações
+```
+
+Nem Redis é necessário inicialmente.
+
+---
+
+# 35. Quando atualizar o commit
+
+Uma opção simples:
+
+quando o agente termina, cliente roda:
+
+```bash
+git rev-parse HEAD
+```
+
+e envia:
+
+```text
+latest_commit
+```
+
+Também pode verificar:
+
+```text
+git status
+```
+
+e informar:
+
+```text
+Task #183
+
+Remote state:
+abc123
+
+⚠ You have uncommitted changes.
+They won't be shared with other developers.
+```
+
+Sem tentar corrigir.
+
+---
+
+# 36. UX importante
+
+Eu colocaria claramente:
+
+```text
+Shared state
+✓ conversation synced
+✓ commit abc123 pushed
+
+Local state
+⚠ 3 uncommitted files
+```
+
+Isso evita a falsa impressão de que outro desenvolvedor verá o que ainda está local.
+
+---
+
+# 37. Primeira versão funcional
+
+O primeiro produto que eu consideraria utilizável teria somente:
+
+```text
+Server
+ ├── auth
+ ├── projects
+ ├── tasks
+ └── messages
+
+Local client
+ ├── login
+ ├── project link
+ ├── task list
+ ├── task create
+ ├── worktree
+ ├── Claude
+ ├── Codex
+ └── sync conversation
+
+Desktop
+ ├── Projects
+ ├── local linking
+ ├── Tasks
+ └── launch agent
+```
+
+Isso já prova praticamente toda a tese.
+
+---
+
+# 38. O que explicitamente fica fora do MVP
+
+Nada de:
+
+```text
+Kubernetes
+
+Docker runners
+
+remote execution
+
+browser IDE
+
+terminal embutido
+
+code editor
+
+file synchronization
+
+uncommitted synchronization
+
+RAG
+
+vector database
+
+MCP orchestration
+
+RBAC
+
+agent arena
+
+AI reviewer
+
+token accounting
+
+billing
+
+shell command history
+
+tool-call synchronization
+
+reasoning synchronization
+```
+
+Isso é importante para o projeto não virar um monstro.
+
+---
+
+# 39. Evolução seguinte
+
+Depois do MVP estabilizado, aí entrariam recursos que aumentam o valor sem mudar a arquitetura:
+
+```text
+OpenCode
+Gemini
+Pi
+
+task comments
+
+handoff explícito
+
+notifications
+
+conversation summary
+
+search
+
+agent profiles
+
+custom commands
+
+Web UI
+
+GitHub/GitLab integration
+```
+
+---
+
+# 40. Handoff explícito
+
+Uma evolução interessante:
+
+```bash
+akh task handoff 183 --to joao
+```
+
+ou pela GUI:
+
+```text
+[ Handoff ]
+
+To:
+João
+
+Note:
+"Oracle Wallet está funcionando.
+Falta testar TNS_ADMIN no Windows."
+
+[ Send ]
+```
+
+Isso é informação nossa, não do agente.
+
+Muito útil em equipe.
+
+---
+
+# 41. Integração Git futura
+
+Depois poderíamos relacionar:
+
+```text
+Task
+↓
+branch
+↓
+commit
+↓
+Pull Request
+```
+
+Então a UI mostra:
+
+```text
+#183 Oracle Wallet
+
+Branch:
+feature/oracle-wallet
+
+PR:
+#812
+
+CI:
+✓ passed
+```
+
+Mas continuaria sendo integração, não implementação própria de Git hosting.
+
+---
+
+# 42. MCP futuramente
+
+Só depois faria sentido adicionar:
+
+```text
+akh MCP server
+```
+
+Aí Codex/Claude poderiam consultar diretamente:
+
+```text
+get_task()
+
+get_history()
+
+get_project()
+
+get_previous_handoff()
+
+add_note()
+```
+
+Mas eu não colocaria isso como requisito inicial.
+
+O contexto injetado no início da sessão já resolve boa parte.
+
+---
+
+# 43. Stack que eu escolheria
+
+Eu manteria quase tudo em Rust:
+
+```text
+Core
+Rust
+
+CLI
+Rust + clap
+
+Server
+Rust + Axum + Tokio
+
+Database
+PostgreSQL + SQLx
+
+Desktop
+Tauri 2
+
+Desktop frontend
+React + TypeScript
+```
+
+Assim:
+
+```text
+Rust workspace
+
+crates/
+  core
+  git
+  agents
+  client
+  server
+  cli
+
+apps/
+  desktop
+```
+
+O frontend seria praticamente a única parte não Rust.
+
+---
+
+# 44. Repositório
+
+Algo assim:
 
 ```text
 akh/
+│
 ├── crates/
 │   ├── core/
 │   ├── git/
@@ -332,54 +1668,134 @@ akh/
 │   ├── client/
 │   ├── api-types/
 │   └── server/
+│
 ├── apps/
 │   ├── cli/
 │   └── desktop/
+│
+├── web/
+│   └── React
+│
 ├── migrations/
+│
 ├── docker/
+│
 └── docker-compose.yml
 ```
 
-## Escopo MVP
+---
 
-O primeiro produto utilizável inclui:
+# 45. Roadmap macro
 
-- servidor com auth, projects, tasks e messages;
-- cliente com login, vínculo de projeto, listagem/criação de tasks, worktree e lançamento de Claude Code e Codex;
-- captura e sincronização de conversa de input/output;
-- context injection;
-- Desktop com Projects, vínculo local, Tasks e launcher de agente;
-- comunicação clara sobre commit compartilhado e alterações locais não commitadas.
+Eu dividiria em cinco marcos:
 
-## Fora do MVP
+**M0 — Core local:** identificar Git repo, project linking, criar worktree, abrir Claude/Codex pelo terminal atual.
 
-Ficam fora: Kubernetes, runners ou execução remota, browser IDE, terminal embutido, editor, sincronização de arquivos ou de estado não commitado, RAG, banco vetorial, orquestração MCP, RBAC, agent arena, AI reviewer, token accounting, billing, histórico de shell, sincronização de tool calls e sincronização de reasoning.
+**M1 — Shared session:** capturar input/output, criar Task e persistir conversa.
 
-## Roadmap
+**M2 — Server:** usuários, projetos, tasks, conversa compartilhada e sincronização entre máquinas.
 
-### M0 — Core local
+**M3 — Desktop:** GUI local para vincular projeto, listar tasks, configurar agentes e abrir uma Task no terminal.
 
-Detectar repositório Git, vincular projeto local, criar/usar worktree e abrir Claude Code ou Codex no terminal existente.
+**M4 — Team workflow:** handoff, indicadores de commit compartilhado, histórico de dev/agente, notificações e UX para assumir tarefa.
 
-### M1 — Shared session
+Nesse ponto eu consideraria que já temos o produto que imaginamos nesta conversa.
 
-Criar Task, capturar input/output, persistir conversa e injetar contexto para continuidade entre agentes na mesma máquina.
+---
 
-### M2 — Server
+# 46. O fluxo final desejado
 
-Introduzir auth, Postgres, projects, tasks, messages e sincronização entre clientes, mantendo Git como fonte de verdade do código.
+João começa:
 
-### M3 — Team handoff e Desktop
+```bash
+cd ~/src/omni-sql
 
-Entregar vínculo local guiado, UI de tasks e launcher, indicadores de estado compartilhado/local e handoff confiável entre desenvolvedores.
+akh task create "Oracle Wallet"
 
-### M4 — Expansão controlada
+akh task 183 claude
+```
 
-Adicionar outros adapters e profiles, resumo de conversa, handoff explícito, notificações, busca, comandos customizados, Web UI e integrações Git/PR. MCP pode ser avaliado nesta fase para consultar task, histórico, projeto e handoff, mas não é requisito inicial.
+Claude trabalha.
 
-## Definição final
+João:
 
-**Akh é a camada local e compartilhada que permite a uma equipe continuar uma mesma tarefa de software através de pessoas e coding agents, usando conversa sincronizada para o contexto e Git commitado para o código.**
+```bash
+git commit
+git push
+```
 
-Ele não tenta substituir Git, IDE, terminal ou agentes. Seu valor é fazer o contexto da task persistir quando o agente ou desenvolvedor muda.
+Fecha o Claude.
 
+O nosso cliente sincroniza:
+
+```text
+Task #183
+latest commit = abc123
+conversation = updated
+last agent = Claude
+last developer = João
+```
+
+Você abre a GUI:
+
+```text
+#183 Oracle Wallet
+
+João · Claude
+Commit abc123
+
+[ Continue ]
+```
+
+Escolhe:
+
+```text
+Codex
+```
+
+Seu cliente:
+
+```text
+resolve D:\dev\omni-sql
+
+git fetch
+
+create worktree
+
+checkout task/183
+
+load conversation
+
+launch terminal
+
+start Codex
+```
+
+Codex recebe:
+
+```text
+Task #183
+Oracle Wallet
+
+João trabalhou anteriormente usando Claude.
+
+[histórico]
+
+Current repository state is commit abc123.
+
+Continue the task.
+```
+
+E você simplesmente continua.
+
+---
+
+## Em uma frase
+
+Eu resumiria o produto assim:
+
+> **Uma camada compartilhada de contexto e continuidade para que qualquer desenvolvedor possa continuar uma tarefa com qualquer coding agent, usando Git como fonte da verdade do código.**
+
+Essa definição é importante porque impede o projeto de escorregar para “vamos construir mais uma IDE” ou “vamos construir mais um agente”.
+
+O nosso valor está justamente **entre Git, o desenvolvedor e os agentes que ele já usa**.
