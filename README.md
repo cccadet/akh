@@ -171,3 +171,29 @@ akh handoff 1 --to USER_UUID --note "Implementação pronta; faltam testes no Wi
 
 O servidor registra sessões de agente, handoffs e notificações. A GUI também
 oferece a ação de handoff e diferencia estado local de estado compartilhado.
+
+## Releases
+
+O workflow [Release](.github/workflows/release.yml) roda ao enviar uma tag
+`vX.Y.Z`. A versão da tag deve corresponder às versões do workspace Rust,
+Tauri e frontend. A publicação só ocorre após os builds Windows e Linux
+terminarem com sucesso. A Release contém o instalador Windows com a CLI,
+um pacote `.deb` para Linux e um arquivo `akh-vX.Y.Z-linux-x86_64.tar.gz`
+com a CLI independente para Linux/WSL.
+
+Para publicar a versão atual, após enviar os commits desejados:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+No WSL x86_64, baixe o arquivo da página de Releases, extraia `akh` e
+coloque-o em um diretório do `PATH`:
+
+```bash
+tar -xzf akh-v0.1.0-linux-x86_64.tar.gz
+install -Dm755 akh "$HOME/.local/bin/akh"
+fish_add_path "$HOME/.local/bin" # Fish; no Bash, exporte PATH="$HOME/.local/bin:$PATH"
+akh --version
+```

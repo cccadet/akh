@@ -1,0 +1,6 @@
+{
+  "bundle": {
+    "targets": ["deb"],
+    "resources": ["../../../target/release/akh"]
+  }
+}

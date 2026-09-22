@@ -324,8 +324,8 @@ fn accept_handoff(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn sync_now() -> Result<String, String> {
-    let mut command = Command::new(akh_command_path());
+fn sync_now(app: tauri::AppHandle) -> Result<String, String> {
+    let mut command = Command::new(akh_command_path(&app));
     command.arg("sync");
     #[cfg(windows)]
     {
@@ -393,12 +393,12 @@ fn create_task(project: String, title: String, branch: Option<String>) -> Result
 }
 
 #[tauri::command]
-fn launch_task(id: u64, agent: String) -> Result<(), String> {
+fn launch_task(app: tauri::AppHandle, id: u64, agent: String) -> Result<(), String> {
     akh_core::config::validate_name(&agent, "agent").map_err(to_string)?;
     let config = Config::load().map_err(to_string)?;
     config.task(id).map_err(to_string)?;
     let mut command = Command::new(&config.terminal.command);
-    let akh = akh_command_path();
+    let akh = akh_command_path(&app);
     command
         .args(&config.terminal.args)
         .arg(akh)
@@ -407,11 +407,20 @@ fn launch_task(id: u64, agent: String) -> Result<(), String> {
     Ok(())
 }
 
-fn akh_command_path() -> PathBuf {
-    std::env::current_exe()
+fn akh_command_path(app: &tauri::AppHandle) -> PathBuf {
+    let sibling = std::env::current_exe().ok().and_then(|path| {
+        path.parent()
+            .map(|parent| parent.join(if cfg!(windows) { "akh.exe" } else { "akh" }))
+    });
+    let bundled = app
+        .path()
+        .resource_dir()
         .ok()
-        .and_then(|path| path.parent().map(|parent| parent.join("akh.exe")))
-        .filter(|path| path.exists())
+        .map(|directory| directory.join("akh"));
+    sibling
+        .into_iter()
+        .chain(bundled)
+        .find(|path| path.is_file())
         .unwrap_or_else(|| PathBuf::from("akh"))
 }
 
