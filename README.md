@@ -112,6 +112,21 @@ agente e launchers que abrem Claude ou Codex no terminal do sistema. Novas
 tasks podem ser criadas pela própria interface, escolhendo projeto, título e,
 opcionalmente, branch.
 
+Backups portáteis podem ser exportados e importados em **Settings**. Eles
+incluem projetos, tasks, conversas, perfis e o SQLite, mas nunca tokens,
+worktrees ou caminhos locais. Depois de importar em outra máquina, vincule
+novamente os clones locais dos projetos.
+
+Os mesmos recursos estão disponíveis na CLI:
+
+```bash
+akh backup export akh-backup.akh-backup --database /caminho/para/akh.db
+akh backup import akh-backup.akh-backup --database /caminho/para/akh.db
+```
+
+O argumento `--database` é opcional. Quando usado na importação, o SQLite é
+preparado para ativação na próxima inicialização do Desktop.
+
 O aplicativo Desktop inicia automaticamente o servidor SQLite embutido em
 `127.0.0.1:3000`. O banco é salvo no diretório de dados do aplicativo e não
 exige Docker nem um processo separado. Para gerar o instalador Windows:

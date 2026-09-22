@@ -11,5 +11,6 @@ akh-client = { path = "../../../crates/client" }
 akh-core = { path = "../../../crates/core" }
 akh-local-server = { path = "../../../crates/local-server" }
 serde = { version = "1", features = ["derive"] }
+rfd.workspace = true
 sqlx.workspace = true
 tauri = { version = "2", features = [] }

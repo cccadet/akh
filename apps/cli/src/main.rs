@@ -27,6 +27,7 @@ enum Command {
     #[command(name = "task-link")]
     TaskLink(TaskLinkArgs),
     Task(TaskArgs),
+    Backup(BackupArgs),
     ConfigPath,
 }
 
@@ -96,6 +97,26 @@ struct TaskArgs {
     prepare_only: bool,
 }
 
+#[derive(Args)]
+struct BackupArgs {
+    #[command(subcommand)]
+    command: BackupCommand,
+}
+
+#[derive(Subcommand)]
+enum BackupCommand {
+    Export {
+        path: PathBuf,
+        #[arg(long)]
+        database: Option<PathBuf>,
+    },
+    Import {
+        path: PathBuf,
+        #[arg(long)]
+        database: Option<PathBuf>,
+    },
+}
+
 fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Register(args) => register(args),
@@ -105,11 +126,51 @@ fn main() -> Result<()> {
         Command::Project(args) => project(args.command),
         Command::TaskLink(args) => task_link(args),
         Command::Task(args) => task(args),
+        Command::Backup(args) => backup(args.command),
         Command::ConfigPath => {
             println!("{}", Config::path()?.display());
             Ok(())
         }
     }
+}
+
+fn backup(command: BackupCommand) -> Result<()> {
+    match command {
+        BackupCommand::Export { path, database } => {
+            let snapshot = if let Some(database) = database.as_deref() {
+                let snapshot = database.with_extension("backup-snapshot.db");
+                tokio::runtime::Runtime::new()?
+                    .block_on(akh_local_server::sanitized_snapshot(database, &snapshot))?;
+                Some(snapshot)
+            } else {
+                None
+            };
+            let export = akh_core::export_backup(&path, snapshot.as_deref());
+            if let Some(snapshot) = snapshot {
+                std::fs::remove_file(snapshot)?;
+            }
+            let result = export?;
+            println!(
+                "exported {} projects, {} tasks and {} conversations to {}",
+                result.projects,
+                result.tasks,
+                result.conversations,
+                path.display()
+            );
+        }
+        BackupCommand::Import { path, database } => {
+            let result = akh_core::import_backup(&path, database.as_deref())?;
+            println!(
+                "imported {} projects, {} tasks and {} conversations",
+                result.projects, result.tasks, result.conversations
+            );
+            if result.restart_required {
+                println!("restart Akh to activate the imported SQLite database");
+            }
+            println!("relink imported projects before launching their tasks");
+        }
+    }
+    Ok(())
 }
 
 fn project(command: ProjectCommand) -> Result<()> {

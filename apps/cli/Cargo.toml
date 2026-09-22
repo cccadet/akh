@@ -10,6 +10,8 @@ path = "src/main.rs"
 [dependencies]
 akh-client = { path = "../../crates/client" }
 akh-core = { path = "../../crates/core" }
+akh-local-server = { path = "../../crates/local-server" }
 anyhow.workspace = true
 clap.workspace = true
 rpassword.workspace = true
+tokio.workspace = true

@@ -37,6 +37,17 @@ struct DesktopTask {
     synced: bool,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupResult {
+    path: String,
+    projects: usize,
+    tasks: usize,
+    conversations: usize,
+    database_included: bool,
+    restart_required: bool,
+}
+
 #[tauri::command]
 fn get_state() -> Result<DesktopState, String> {
     let config = Config::load().map_err(to_string)?;
@@ -175,6 +186,50 @@ fn handoff_task(id: u64, to: String, note: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn export_backup(app: tauri::AppHandle) -> Result<Option<BackupResult>, String> {
+    let Some(path) = rfd::FileDialog::new()
+        .set_file_name("akh-backup.akh-backup")
+        .add_filter("Akh backup", &["akh-backup"])
+        .save_file()
+    else {
+        return Ok(None);
+    };
+    let database = app.path().app_data_dir().map_err(to_string)?.join("akh.db");
+    let snapshot = database.with_extension("backup-snapshot.db");
+    akh_local_server::sanitized_snapshot(&database, &snapshot)
+        .await
+        .map_err(to_string)?;
+    let export = akh_core::export_backup(&path, Some(&snapshot));
+    std::fs::remove_file(snapshot).map_err(to_string)?;
+    let summary = export.map_err(to_string)?;
+    Ok(Some(backup_result(path, summary)))
+}
+
+#[tauri::command]
+fn import_backup(app: tauri::AppHandle) -> Result<Option<BackupResult>, String> {
+    let Some(path) = rfd::FileDialog::new()
+        .add_filter("Akh backup", &["akh-backup"])
+        .pick_file()
+    else {
+        return Ok(None);
+    };
+    let database = app.path().app_data_dir().map_err(to_string)?.join("akh.db");
+    let summary = akh_core::import_backup(&path, Some(&database)).map_err(to_string)?;
+    Ok(Some(backup_result(path, summary)))
+}
+
+fn backup_result(path: PathBuf, summary: akh_core::BackupSummary) -> BackupResult {
+    BackupResult {
+        path: path.display().to_string(),
+        projects: summary.projects,
+        tasks: summary.tasks,
+        conversations: summary.conversations,
+        database_included: summary.database_included,
+        restart_required: summary.restart_required,
+    }
+}
+
 fn default_terminal() -> &'static str {
     if cfg!(windows) {
         "Windows Terminal"
@@ -194,7 +249,9 @@ fn main() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
-            let options = SqliteConnectOptions::new().filename(data_dir.join("akh.db"));
+            let database = data_dir.join("akh.db");
+            akh_core::backup::apply_staged_database(&database)?;
+            let options = SqliteConnectOptions::new().filename(database);
             let address = "127.0.0.1:3000".parse()?;
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = akh_local_server::serve(options, address).await {
@@ -208,7 +265,9 @@ fn main() {
             link_project,
             create_task,
             launch_task,
-            handoff_task
+            handoff_task,
+            export_backup,
+            import_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running Akh desktop");
