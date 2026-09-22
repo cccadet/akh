@@ -6,6 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
+    "beforeBundleCommand": "cargo build --release -p akh-cli",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -15,6 +16,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"]
+    "targets": ["nsis"],
+    "resources": {
+      "../../../target/release/akh.exe": "akh.exe"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "installer-hooks.nsh"
+      }
+    }
   }
 }

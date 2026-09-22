@@ -129,7 +129,9 @@ preparado para ativação na próxima inicialização do Desktop.
 
 O aplicativo Desktop inicia automaticamente o servidor SQLite embutido em
 `127.0.0.1:3000`. O banco é salvo no diretório de dados do aplicativo e não
-exige Docker nem um processo separado. Para gerar o instalador Windows:
+exige Docker nem um processo separado. O instalador Windows também inclui
+`akh.exe` e adiciona sua pasta ao `PATH` do usuário; um novo terminal já pode
+usar `akh --help`. Para gerar o instalador:
 
 ```powershell
 cd apps/desktop
