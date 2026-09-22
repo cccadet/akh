@@ -110,6 +110,16 @@ npm run tauri dev
 A interface mostra vínculos locais, tasks, estado local/compartilhado, último
 agente e launchers que abrem Claude ou Codex no terminal do sistema.
 
+O aplicativo Desktop inicia automaticamente o servidor SQLite embutido em
+`127.0.0.1:3000`. O banco é salvo no diretório de dados do aplicativo e não
+exige Docker nem um processo separado. Para gerar o instalador Windows:
+
+```powershell
+cd apps/desktop
+npm install
+.\\node_modules\\.bin\\tauri.cmd build
+```
+
 ## M4: workflow de equipe
 
 Depois de sincronizar uma task, ela pode ser entregue a outro usuário:

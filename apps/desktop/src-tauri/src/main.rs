@@ -3,6 +3,8 @@ use std::process::Command;
 
 use akh_core::{Config, GitRepository, ProjectLink};
 use serde::Serialize;
+use sqlx::sqlite::SqliteConnectOptions;
+use tauri::Manager;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -160,6 +162,18 @@ fn to_string(error: impl std::fmt::Display) -> String {
 
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&data_dir)?;
+            let options = SqliteConnectOptions::new().filename(data_dir.join("akh.db"));
+            let address = "127.0.0.1:3000".parse()?;
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = akh_local_server::serve(options, address).await {
+                    eprintln!("embedded Akh server failed: {error:#}");
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_state,
             link_project,

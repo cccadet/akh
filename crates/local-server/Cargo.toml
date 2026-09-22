@@ -3,6 +3,10 @@ name = "akh-local-server"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "akh_local_server"
+path = "src/lib.rs"
+
 [dependencies]
 anyhow.workspace = true
 argon2.workspace = true

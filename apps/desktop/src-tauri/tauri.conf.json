@@ -13,5 +13,8 @@
     "windows": [{ "title": "Akh", "width": 1180, "height": 780, "minWidth": 760, "minHeight": 560 }],
     "security": { "csp": null }
   },
-  "bundle": { "active": false }
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"]
+  }
 }

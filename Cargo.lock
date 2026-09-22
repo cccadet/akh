@@ -60,7 +60,9 @@ version = "0.1.0"
 dependencies = [
  "akh-client",
  "akh-core",
+ "akh-local-server",
  "serde",
+ "sqlx",
  "tauri",
  "tauri-build",
 ]
