@@ -28,6 +28,7 @@ dependencies = [
  "clap",
  "rpassword",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -69,6 +70,7 @@ dependencies = [
  "sqlx",
  "tauri",
  "tauri-build",
+ "uuid",
 ]
 
 [[package]]

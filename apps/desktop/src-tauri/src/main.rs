@@ -12,10 +12,14 @@ use tauri::Manager;
 #[serde(rename_all = "camelCase")]
 struct DesktopState {
     server_configured: bool,
+    server: Option<String>,
     worktree_root: String,
     terminal_command: String,
     projects: Vec<DesktopProject>,
     tasks: Vec<DesktopTask>,
+    profiles: Vec<DesktopProfile>,
+    users: Vec<DesktopUser>,
+    notifications: Vec<DesktopNotification>,
 }
 
 #[derive(Serialize)]
@@ -37,6 +41,52 @@ struct DesktopTask {
     latest_commit: Option<String>,
     last_agent: Option<String>,
     synced: bool,
+    dirty: bool,
+    commit_pushed: Option<bool>,
+    messages: Vec<DesktopMessage>,
+    pending_handoffs: Vec<DesktopHandoff>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopMessage {
+    role: String,
+    agent: String,
+    content: String,
+    created_at: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopHandoff {
+    id: String,
+    from_user_id: String,
+    note: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopProfile {
+    name: String,
+    command: String,
+    args: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct DesktopUser {
+    id: String,
+    username: String,
+    email: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopNotification {
+    id: String,
+    task_id: Option<i64>,
+    kind: String,
+    content: String,
+    created_at: String,
 }
 
 #[derive(Serialize)]
@@ -53,10 +103,47 @@ struct BackupResult {
 #[tauri::command]
 fn get_state() -> Result<DesktopState, String> {
     let config = Config::load().map_err(to_string)?;
+    let linked_projects = config.projects.clone();
+    let worktree_root = config.worktree_root.clone();
+    let team_client = match (config.server.as_deref(), config.token.as_deref()) {
+        (Some(server), Some(token)) => akh_client::ServerClient::new(server, Some(token)).ok(),
+        _ => None,
+    };
+    let users = team_client
+        .as_ref()
+        .and_then(|client| client.users().ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|user| DesktopUser {
+            id: user.id.to_string(),
+            username: user.username,
+            email: user.email,
+        })
+        .collect();
+    let notifications = team_client
+        .as_ref()
+        .and_then(|client| client.notifications().ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|notification| DesktopNotification {
+            id: notification.id.to_string(),
+            task_id: notification.task_id,
+            kind: notification.kind,
+            content: notification.content,
+            created_at: notification.created_at.to_rfc3339(),
+        })
+        .collect();
     Ok(DesktopState {
         server_configured: config.server.is_some() && config.token.is_some(),
+        server: config.server.clone(),
         worktree_root: config.worktree_root.display().to_string(),
-        terminal_command: default_terminal().into(),
+        terminal_command: format!(
+            "{} {}",
+            config.terminal.command,
+            config.terminal.args.join(" ")
+        )
+        .trim()
+        .into(),
         projects: config
             .projects
             .into_iter()
@@ -71,14 +158,49 @@ fn get_state() -> Result<DesktopState, String> {
             .tasks
             .into_iter()
             .map(|(id, task)| {
-                let last_agent = akh_core::Conversation::load(id)
-                    .ok()
-                    .and_then(|conversation| {
-                        conversation
-                            .messages
-                            .last()
-                            .map(|message| message.agent.clone())
-                    });
+                let worktree = worktree_root.join(&task.project).join(id.to_string());
+                let repository_path = if worktree.exists() {
+                    Some(worktree)
+                } else {
+                    linked_projects
+                        .get(&task.project)
+                        .map(|project| project.path.clone())
+                };
+                let repository = repository_path
+                    .as_deref()
+                    .and_then(|path| GitRepository::discover(path).ok());
+                let dirty = repository
+                    .as_ref()
+                    .and_then(|repo| repo.is_clean().ok())
+                    .is_some_and(|clean| !clean);
+                let commit_pushed = task.latest_commit.as_deref().and_then(|commit| {
+                    repository
+                        .as_ref()
+                        .and_then(|repo| repo.commit_is_pushed(commit, &task.branch).ok())
+                });
+                let conversation = akh_core::Conversation::load(id).unwrap_or_default();
+                let pending_handoffs = task
+                    .remote_id
+                    .and_then(|remote_id| {
+                        team_client
+                            .as_ref()
+                            .and_then(|client| client.handoffs(remote_id).ok())
+                    })
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|handoff| {
+                        handoff.accepted_at.is_none() && Some(handoff.to_user_id) == config.user_id
+                    })
+                    .map(|handoff| DesktopHandoff {
+                        id: handoff.id.to_string(),
+                        from_user_id: handoff.from_user_id.to_string(),
+                        note: handoff.note,
+                    })
+                    .collect();
+                let last_agent = conversation
+                    .messages
+                    .last()
+                    .map(|message| message.agent.clone());
                 DesktopTask {
                     id,
                     title: task.title,
@@ -87,10 +209,134 @@ fn get_state() -> Result<DesktopState, String> {
                     latest_commit: task.latest_commit,
                     last_agent,
                     synced: task.remote_id.is_some(),
+                    dirty,
+                    commit_pushed,
+                    messages: conversation
+                        .messages
+                        .into_iter()
+                        .map(|message| DesktopMessage {
+                            role: format!("{:?}", message.role),
+                            agent: message.agent,
+                            content: message.content,
+                            created_at: message.created_at,
+                        })
+                        .collect(),
+                    pending_handoffs,
                 }
             })
             .collect(),
+        profiles: config
+            .profiles
+            .into_iter()
+            .map(|(name, profile)| DesktopProfile {
+                name,
+                command: profile.command,
+                args: profile.args,
+            })
+            .collect(),
+        users,
+        notifications,
     })
+}
+
+#[tauri::command]
+fn save_terminal(command: String, args: Vec<String>) -> Result<(), String> {
+    if command.trim().is_empty() {
+        return Err("terminal command is required".into());
+    }
+    let mut config = Config::load().map_err(to_string)?;
+    config.terminal = akh_core::TerminalConfig { command, args };
+    config.save().map_err(to_string)
+}
+
+#[tauri::command]
+fn save_worktree_root(path: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("worktree directory is required".into());
+    }
+    let mut config = Config::load().map_err(to_string)?;
+    config.worktree_root = PathBuf::from(path);
+    config.save().map_err(to_string)
+}
+
+#[tauri::command]
+fn save_profile(name: String, command: String, args: Vec<String>) -> Result<(), String> {
+    akh_core::config::validate_name(&name, "profile").map_err(to_string)?;
+    if command.trim().is_empty() {
+        return Err("profile command is required".into());
+    }
+    let mut config = Config::load().map_err(to_string)?;
+    config
+        .profiles
+        .insert(name, akh_core::AgentProfile { command, args });
+    config.save().map_err(to_string)
+}
+
+#[tauri::command]
+fn login_server(server: String, identity: String, password: String) -> Result<(), String> {
+    let auth = akh_client::ServerClient::new(&server, None)
+        .and_then(|client| client.login(&identity, &password))
+        .map_err(to_string)?;
+    save_server_auth(server, auth.token, auth.user_id)
+}
+
+#[tauri::command]
+fn register_server(
+    server: String,
+    email: String,
+    username: String,
+    password: String,
+) -> Result<(), String> {
+    let auth = akh_client::ServerClient::new(&server, None)
+        .and_then(|client| client.register(&email, &username, &password))
+        .map_err(to_string)?;
+    save_server_auth(server, auth.token, auth.user_id)
+}
+
+fn save_server_auth(server: String, token: String, user_id: uuid::Uuid) -> Result<(), String> {
+    let mut config = Config::load().map_err(to_string)?;
+    config.server = Some(server);
+    config.token = Some(token);
+    config.user_id = Some(user_id);
+    config.save().map_err(to_string)
+}
+
+#[tauri::command]
+fn logout_server() -> Result<(), String> {
+    let mut config = Config::load().map_err(to_string)?;
+    config.token = None;
+    config.user_id = None;
+    config.save().map_err(to_string)
+}
+
+#[tauri::command]
+fn accept_handoff(id: String) -> Result<(), String> {
+    let config = Config::load().map_err(to_string)?;
+    let client = akh_client::ServerClient::new(
+        config.server.as_deref().ok_or("server is not configured")?,
+        Some(config.token.as_deref().ok_or("token is not configured")?),
+    )
+    .map_err(to_string)?;
+    client
+        .accept_handoff(id.parse().map_err(|_| "invalid handoff UUID")?)
+        .map_err(to_string)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn sync_now() -> Result<String, String> {
+    let mut command = Command::new(akh_command_path());
+    command.arg("sync");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let output = command.output().map_err(to_string)?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().into());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().into())
 }
 
 #[tauri::command]
@@ -151,32 +397,56 @@ fn launch_task(id: u64, agent: String) -> Result<(), String> {
     akh_core::config::validate_name(&agent, "agent").map_err(to_string)?;
     let config = Config::load().map_err(to_string)?;
     config.task(id).map_err(to_string)?;
-    #[cfg(windows)]
-    let mut command = {
-        let mut cmd = Command::new("wt.exe");
-        cmd.args(["akh", "task", &id.to_string(), &agent]);
-        cmd
-    };
-    #[cfg(target_os = "macos")]
-    let mut command = {
-        let mut cmd = Command::new("open");
-        cmd.args(["-a", "Terminal", "akh", "task", &id.to_string(), &agent]);
-        cmd
-    };
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = {
-        let mut cmd = Command::new("x-terminal-emulator");
-        cmd.args(["-e", "akh", "task", &id.to_string(), &agent]);
-        cmd
-    };
+    let mut command = Command::new(&config.terminal.command);
+    let akh = akh_command_path();
+    command
+        .args(&config.terminal.args)
+        .arg(akh)
+        .args(["task", &id.to_string(), &agent]);
     command.spawn().map_err(to_string)?;
     Ok(())
+}
+
+fn akh_command_path() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.join("akh.exe")))
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| PathBuf::from("akh"))
 }
 
 #[tauri::command]
 fn handoff_task(id: u64, to: String, note: String) -> Result<(), String> {
     let config = Config::load().map_err(to_string)?;
     let task = config.task(id).map_err(to_string)?;
+    let project = config.project(&task.project).map_err(to_string)?;
+    let worktree = config
+        .worktree_root
+        .join(&task.project)
+        .join(id.to_string());
+    let repo = GitRepository::discover(if worktree.exists() {
+        &worktree
+    } else {
+        &project.path
+    })
+    .map_err(to_string)?;
+    if !repo.is_clean().map_err(to_string)? {
+        return Err("task has uncommitted changes; commit them before handoff".into());
+    }
+    let commit = task
+        .latest_commit
+        .as_deref()
+        .ok_or("task has no completed agent session commit")?;
+    repo.fetch().map_err(to_string)?;
+    if !repo
+        .commit_is_pushed(commit, &task.branch)
+        .map_err(to_string)?
+    {
+        return Err(format!(
+            "commit {commit} is not available on origin/{}; push it before handoff",
+            task.branch
+        ));
+    }
     let remote_id = task.remote_id.ok_or("task is not synchronized")?;
     let server = config.server.as_deref().ok_or("server is not configured")?;
     let token = config.token.as_deref().ok_or("token is not configured")?;
@@ -232,16 +502,6 @@ fn backup_result(path: PathBuf, summary: akh_core::BackupSummary) -> BackupResul
     }
 }
 
-fn default_terminal() -> &'static str {
-    if cfg!(windows) {
-        "Windows Terminal"
-    } else if cfg!(target_os = "macos") {
-        "Terminal.app"
-    } else {
-        "System terminal"
-    }
-}
-
 fn to_string(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -269,7 +529,15 @@ fn main() {
             launch_task,
             handoff_task,
             export_backup,
-            import_backup
+            import_backup,
+            save_terminal,
+            save_worktree_root,
+            save_profile,
+            login_server,
+            register_server,
+            logout_server,
+            sync_now,
+            accept_handoff
         ])
         .run(tauri::generate_context!())
         .expect("error while running Akh desktop");

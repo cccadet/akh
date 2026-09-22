@@ -2,6 +2,7 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use reqwest::blocking::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::time::Duration;
 use uuid::Uuid;
 
 pub struct ServerClient {
@@ -15,7 +16,7 @@ impl ServerClient {
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_owned(),
             token: token.map(str::to_owned),
-            http: Client::builder().build()?,
+            http: Client::builder().timeout(Duration::from_secs(10)).build()?,
         })
     }
 
@@ -47,6 +48,14 @@ impl ServerClient {
     }
     pub fn create_task(&self, input: &CreateTask) -> Result<Task> {
         self.send(self.auth(self.http.post(self.url("/tasks"))).json(input))
+    }
+    pub fn tasks(&self, project_id: Option<Uuid>) -> Result<Vec<Task>> {
+        let request = self.auth(self.http.get(self.url("/tasks")));
+        let request = match project_id {
+            Some(project_id) => request.query(&[("project_id", project_id)]),
+            None => request,
+        };
+        self.send(request)
     }
     pub fn update_task(&self, id: i64, input: &UpdateTask) -> Result<Task> {
         self.send(
@@ -80,6 +89,26 @@ impl ServerClient {
             )
             .json(&CreateHandoff { to_user_id, note }),
         )
+    }
+    pub fn users(&self) -> Result<Vec<User>> {
+        self.send(self.auth(self.http.get(self.url("/users"))))
+    }
+
+    pub fn handoffs(&self, task_id: i64) -> Result<Vec<Handoff>> {
+        self.send(
+            self.auth(
+                self.http
+                    .get(self.url(&format!("/tasks/{task_id}/handoffs"))),
+            ),
+        )
+    }
+
+    pub fn accept_handoff(&self, id: Uuid) -> Result<Handoff> {
+        self.send(self.auth(self.http.post(self.url(&format!("/handoffs/{id}/accept")))))
+    }
+
+    pub fn notifications(&self) -> Result<Vec<Notification>> {
+        self.send(self.auth(self.http.get(self.url("/notifications"))))
     }
 
     pub fn start_session(&self, task_id: i64, agent: &str) -> Result<AgentSession> {
@@ -152,7 +181,7 @@ pub struct CreateProject<'a> {
     pub default_branch: &'a str,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Task {
     pub id: i64,
     pub project_id: Uuid,
@@ -216,6 +245,23 @@ pub struct Handoff {
     pub note: String,
     pub created_at: DateTime<Utc>,
     pub accepted_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct User {
+    pub id: Uuid,
+    pub email: String,
+    pub username: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Notification {
+    pub id: Uuid,
+    pub task_id: Option<i64>,
+    pub kind: String,
+    pub content: String,
+    pub read_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Serialize)]

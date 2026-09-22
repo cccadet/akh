@@ -35,6 +35,13 @@ cargo run -p akh-cli -- task 183 codex
 cargo run -p akh-cli -- task 183 claude
 ```
 
+Dentro de um repositório já vinculado, `--project` é opcional ao criar uma
+task. O Akh detecta o projeto pelo diretório Git e pelo remote:
+
+```bash
+akh task create "Implementar continuidade"
+```
+
 Por padrão, configuração e worktrees ficam abaixo de `~/.akh` e não entram no
 repositório. Para testes isolados, `AKH_CONFIG_HOME` pode apontar para outro
 diretório.
@@ -96,6 +103,11 @@ O servidor recebe somente projects, tasks, mensagens, sessões, handoffs e
 referências Git. Caminhos locais, worktrees e arquivos não commitados não são
 enviados.
 
+Quando há autenticação configurada, o fluxo `akh task ID AGENT` sincroniza
+automaticamente antes de abrir e depois de fechar o agente. Tasks remotas novas
+são adicionadas localmente. Um commit só é publicado como estado compartilhado
+quando existe em `origin/BRANCH`; mudanças não commitadas permanecem locais.
+
 ## M3: Desktop
 
 O Desktop usa Tauri 2, React e TypeScript:
@@ -111,6 +123,16 @@ A interface mostra vínculos locais, tasks, estado local/compartilhado, último
 agente e launchers que abrem Claude ou Codex no terminal do sistema. Novas
 tasks podem ser criadas pela própria interface, escolhendo projeto, título e,
 opcionalmente, branch.
+
+Em **Settings** também é possível registrar/login, sincronizar, configurar o
+terminal, escolher a raiz dos worktrees e criar profiles de agentes. Por
+exemplo, a CLI equivalente para Headroom é:
+
+```bash
+akh profile set codex-headroom headroom wrap codex
+akh terminal set wezterm start
+akh worktree set D:\\worktrees
+```
 
 Backups portáteis podem ser exportados e importados em **Settings**. Eles
 incluem projetos, tasks, conversas, perfis e o SQLite, mas nunca tokens,

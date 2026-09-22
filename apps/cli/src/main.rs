@@ -23,11 +23,22 @@ enum Command {
     Login(LoginArgs),
     Sync,
     Handoff(HandoffArgs),
+    Handoffs {
+        task_id: u64,
+    },
+    AcceptHandoff {
+        id: String,
+    },
+    Users,
+    Notifications,
     Project(ProjectArgs),
     #[command(name = "task-link")]
     TaskLink(TaskLinkArgs),
     Task(TaskArgs),
     Backup(BackupArgs),
+    Profile(ProfileArgs),
+    Terminal(TerminalArgs),
+    Worktree(WorktreeArgs),
     ConfigPath,
 }
 
@@ -117,21 +128,191 @@ enum BackupCommand {
     },
 }
 
+#[derive(Args)]
+struct ProfileArgs {
+    #[command(subcommand)]
+    command: ProfileCommand,
+}
+
+#[derive(Subcommand)]
+enum ProfileCommand {
+    List,
+    Set {
+        name: String,
+        command: String,
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
+    Remove {
+        name: String,
+    },
+}
+
+#[derive(Args)]
+struct TerminalArgs {
+    #[command(subcommand)]
+    command: TerminalCommand,
+}
+
+#[derive(Args)]
+struct WorktreeArgs {
+    #[command(subcommand)]
+    command: WorktreeCommand,
+}
+
+#[derive(Subcommand)]
+enum WorktreeCommand {
+    Show,
+    Set { path: PathBuf },
+}
+
+#[derive(Subcommand)]
+enum TerminalCommand {
+    Show,
+    Set {
+        command: String,
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
+}
+
 fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Register(args) => register(args),
         Command::Login(args) => login(args),
         Command::Sync => sync(),
         Command::Handoff(args) => handoff(args),
+        Command::Handoffs { task_id } => list_handoffs(task_id),
+        Command::AcceptHandoff { id } => accept_handoff(&id),
+        Command::Users => list_users(),
+        Command::Notifications => list_notifications(),
         Command::Project(args) => project(args.command),
         Command::TaskLink(args) => task_link(args),
         Command::Task(args) => task(args),
         Command::Backup(args) => backup(args.command),
+        Command::Profile(args) => profile(args.command),
+        Command::Terminal(args) => terminal(args.command),
+        Command::Worktree(args) => worktree(args.command),
         Command::ConfigPath => {
             println!("{}", Config::path()?.display());
             Ok(())
         }
     }
+}
+
+fn authenticated_client() -> Result<ServerClient> {
+    let config = Config::load()?;
+    ServerClient::new(
+        config
+            .server
+            .as_deref()
+            .context("server is not configured")?,
+        Some(config.token.as_deref().context("token is not configured")?),
+    )
+}
+
+fn list_users() -> Result<()> {
+    for user in authenticated_client()?.users()? {
+        println!("{}\t{}\t{}", user.id, user.username, user.email);
+    }
+    Ok(())
+}
+
+fn list_notifications() -> Result<()> {
+    for notification in authenticated_client()?.notifications()? {
+        println!(
+            "{}\t{}\t{}",
+            notification.id, notification.kind, notification.content
+        );
+    }
+    Ok(())
+}
+
+fn list_handoffs(task_id: u64) -> Result<()> {
+    let config = Config::load()?;
+    let remote_id = config
+        .task(task_id)?
+        .remote_id
+        .context("task is not synchronized")?;
+    for handoff in authenticated_client()?.handoffs(remote_id)? {
+        println!(
+            "{}\t{} -> {}\t{}",
+            handoff.id, handoff.from_user_id, handoff.to_user_id, handoff.note
+        );
+    }
+    Ok(())
+}
+
+fn accept_handoff(id: &str) -> Result<()> {
+    let id = id.parse().context("invalid handoff UUID")?;
+    let handoff = authenticated_client()?.accept_handoff(id)?;
+    println!(
+        "accepted handoff {} for task {}",
+        handoff.id, handoff.task_id
+    );
+    Ok(())
+}
+
+fn worktree(command: WorktreeCommand) -> Result<()> {
+    let mut config = Config::load()?;
+    match command {
+        WorktreeCommand::Show => println!("{}", config.worktree_root.display()),
+        WorktreeCommand::Set { path } => {
+            config.worktree_root = path;
+            config.save()?;
+            println!("saved worktree root");
+        }
+    }
+    Ok(())
+}
+
+fn profile(command: ProfileCommand) -> Result<()> {
+    let mut config = Config::load()?;
+    match command {
+        ProfileCommand::List => {
+            for (name, profile) in config.profiles {
+                println!("{name}\t{} {}", profile.command, profile.args.join(" "));
+            }
+        }
+        ProfileCommand::Set {
+            name,
+            command,
+            args,
+        } => {
+            validate_name(&name, "profile")?;
+            config
+                .profiles
+                .insert(name.clone(), akh_core::AgentProfile { command, args });
+            config.save()?;
+            println!("saved profile '{name}'");
+        }
+        ProfileCommand::Remove { name } => {
+            config
+                .profiles
+                .remove(&name)
+                .with_context(|| format!("profile '{name}' does not exist"))?;
+            config.save()?;
+            println!("removed profile '{name}'");
+        }
+    }
+    Ok(())
+}
+
+fn terminal(command: TerminalCommand) -> Result<()> {
+    let mut config = Config::load()?;
+    match command {
+        TerminalCommand::Show => println!(
+            "{} {}",
+            config.terminal.command,
+            config.terminal.args.join(" ")
+        ),
+        TerminalCommand::Set { command, args } => {
+            config.terminal = akh_core::TerminalConfig { command, args };
+            config.save()?;
+            println!("saved terminal configuration");
+        }
+    }
+    Ok(())
 }
 
 fn backup(command: BackupCommand) -> Result<()> {
@@ -256,6 +437,7 @@ fn task(args: TaskArgs) -> Result<()> {
     let agent = args
         .value
         .context("missing agent profile (for example: codex)")?;
+    sync_if_configured("before agent launch");
     validate_name(&agent, "agent profile")?;
     let mut config = Config::load()?;
     let task = config.task(id)?.clone();
@@ -313,6 +495,11 @@ fn task(args: TaskArgs) -> Result<()> {
     conversation.save()?;
 
     let latest_commit = worktree_repo.head()?;
+    if !worktree_repo.is_clean()? {
+        eprintln!(
+            "warning: task {id} has uncommitted changes; they remain local and will not be shared"
+        );
+    }
     if let Some(stored_task) = config.tasks.get_mut(&id) {
         stored_task.latest_commit = Some(latest_commit);
     }
@@ -326,14 +513,18 @@ fn task(args: TaskArgs) -> Result<()> {
     if !session.success {
         bail!("agent '{agent}' exited unsuccessfully");
     }
+    sync_if_configured("after agent exit");
     Ok(())
 }
 
 fn task_create(args: TaskArgs) -> Result<()> {
     let title = args.value.context("missing task title")?;
-    let project = args.project.context("--project is required")?;
-    validate_name(&project, "project")?;
     let mut config = Config::load()?;
+    let project = match args.project {
+        Some(project) => project,
+        None => detect_linked_project(&config)?,
+    };
+    validate_name(&project, "project")?;
     config.project(&project)?;
     let id = config.tasks.keys().next_back().copied().unwrap_or(0) + 1;
     let branch = args.branch.unwrap_or_else(|| format!("task/{id}"));
@@ -353,11 +544,24 @@ fn task_create(args: TaskArgs) -> Result<()> {
     Ok(())
 }
 
+fn detect_linked_project(config: &Config) -> Result<String> {
+    let current = GitRepository::discover(&std::env::current_dir()?)?;
+    config
+        .projects
+        .iter()
+        .find(|(_, project)| {
+            project.path == current.root
+                || (project.repository_url.is_some() && project.repository_url == current.origin)
+        })
+        .map(|(name, _)| name.clone())
+        .context("current repository is not linked; run `akh project link` or provide --project")
+}
+
 fn register(args: AuthArgs) -> Result<()> {
     let password = rpassword::prompt_password("Password: ")?;
     let client = ServerClient::new(&args.server, None)?;
     let auth = client.register(&args.email, &args.username, &password)?;
-    save_auth(args.server, auth.token)?;
+    save_auth(args.server, auth.token, auth.user_id)?;
     println!("registered and logged in as {}", auth.user_id);
     Ok(())
 }
@@ -366,21 +570,46 @@ fn login(args: LoginArgs) -> Result<()> {
     let password = rpassword::prompt_password("Password: ")?;
     let client = ServerClient::new(&args.server, None)?;
     let auth = client.login(&args.identity, &password)?;
-    save_auth(args.server, auth.token)?;
+    save_auth(args.server, auth.token, auth.user_id)?;
     println!("logged in as {}", auth.user_id);
     Ok(())
 }
 
-fn save_auth(server: String, token: String) -> Result<()> {
+fn save_auth(server: String, token: String, user_id: uuid::Uuid) -> Result<()> {
     let mut config = Config::load()?;
     config.server = Some(server);
     config.token = Some(token);
+    config.user_id = Some(user_id);
     config.save()
 }
 
 fn handoff(args: HandoffArgs) -> Result<()> {
     let config = Config::load()?;
     let task = config.task(args.task_id)?;
+    let project = config.project(&task.project)?;
+    let worktree = config
+        .worktree_root
+        .join(&task.project)
+        .join(args.task_id.to_string());
+    let repo = GitRepository::discover(if worktree.exists() {
+        &worktree
+    } else {
+        &project.path
+    })?;
+    if !repo.is_clean()? {
+        bail!("task has uncommitted changes; commit them before handoff");
+    }
+    let commit = task
+        .latest_commit
+        .as_deref()
+        .context("task has no completed agent session commit")?;
+    repo.fetch()?;
+    if !repo.commit_is_pushed(commit, &task.branch)? {
+        bail!(
+            "commit {commit} is not available on origin/{}; push it before handoff",
+            task.branch
+        );
+    }
     let remote_id = task
         .remote_id
         .context("task is not synchronized; run `akh sync`")?;
@@ -434,6 +663,39 @@ fn sync() -> Result<()> {
         project.remote_id = Some(remote.id);
     }
 
+    let linked_projects: Vec<_> = config
+        .projects
+        .iter()
+        .filter_map(|(name, project)| project.remote_id.map(|id| (name.clone(), id)))
+        .collect();
+    for (project_name, project_id) in linked_projects {
+        for remote in client.tasks(Some(project_id))? {
+            if config
+                .tasks
+                .values()
+                .any(|task| task.remote_id == Some(remote.id))
+            {
+                continue;
+            }
+            let preferred = u64::try_from(remote.id).unwrap_or(0);
+            let local_id = if preferred > 0 && !config.tasks.contains_key(&preferred) {
+                preferred
+            } else {
+                config.tasks.keys().next_back().copied().unwrap_or(0) + 1
+            };
+            config.tasks.insert(
+                local_id,
+                TaskLink {
+                    project: project_name.clone(),
+                    branch: remote.branch,
+                    title: remote.title,
+                    latest_commit: remote.latest_commit,
+                    remote_id: Some(remote.id),
+                },
+            );
+        }
+    }
+
     let task_ids: Vec<u64> = config.tasks.keys().copied().collect();
     for local_id in task_ids {
         let mut task = config.tasks[&local_id].clone();
@@ -456,13 +718,23 @@ fn sync() -> Result<()> {
         };
         task.remote_id = Some(remote_id);
         if let Some(commit) = task.latest_commit.as_deref() {
-            client.update_task(
-                remote_id,
-                &UpdateTask {
-                    latest_commit: Some(commit),
-                    status: Some("in_progress"),
-                },
-            )?;
+            let project = config.project(&task.project)?;
+            let repo = GitRepository::discover(&project.path)?;
+            repo.fetch()?;
+            if repo.commit_is_pushed(commit, &task.branch)? {
+                client.update_task(
+                    remote_id,
+                    &UpdateTask {
+                        latest_commit: Some(commit),
+                        status: Some("in_progress"),
+                    },
+                )?;
+            } else {
+                eprintln!(
+                    "warning: task {local_id} commit {commit} is not on origin/{}; code state was not shared",
+                    task.branch
+                );
+            }
         }
 
         let remote_messages = client.messages(remote_id)?;
@@ -517,6 +789,15 @@ fn sync() -> Result<()> {
         config.tasks.len()
     );
     Ok(())
+}
+
+fn sync_if_configured(stage: &str) {
+    let configured = Config::load()
+        .map(|config| config.server.is_some() && config.token.is_some())
+        .unwrap_or(false);
+    if configured && let Err(error) = sync() {
+        eprintln!("warning: synchronization {stage} failed: {error}");
+    }
 }
 
 fn task_list() -> Result<()> {

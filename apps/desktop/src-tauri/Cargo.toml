@@ -14,3 +14,4 @@ serde = { version = "1", features = ["derive"] }
 rfd.workspace = true
 sqlx.workspace = true
 tauri = { version = "2", features = [] }
+uuid.workspace = true

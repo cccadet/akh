@@ -37,6 +37,26 @@ impl GitRepository {
         git_output(&self.root, &["rev-parse", "HEAD"])
     }
 
+    pub fn is_clean(&self) -> Result<bool> {
+        Ok(git_output(&self.root, &["status", "--porcelain"])?.is_empty())
+    }
+
+    pub fn commit_is_pushed(&self, commit: &str, branch: &str) -> Result<bool> {
+        if self.origin.is_none() {
+            return Ok(false);
+        }
+        let remote_branch = format!("refs/remotes/origin/{branch}");
+        if !ref_exists(&self.root, &remote_branch) {
+            return Ok(false);
+        }
+        Ok(Command::new("git")
+            .args(["merge-base", "--is-ancestor", commit, &remote_branch])
+            .current_dir(&self.root)
+            .status()
+            .context("failed to verify whether commit was pushed")?
+            .success())
+    }
+
     pub fn validate_branch(branch: &str) -> Result<()> {
         let status = Command::new("git")
             .args(["check-ref-format", "--branch", branch])

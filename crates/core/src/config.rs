@@ -11,6 +11,8 @@ pub struct Config {
     pub server: Option<String>,
     #[serde(default)]
     pub token: Option<String>,
+    #[serde(default)]
+    pub user_id: Option<uuid::Uuid>,
     #[serde(default = "default_worktree_root")]
     pub worktree_root: PathBuf,
     #[serde(default)]
@@ -19,6 +21,8 @@ pub struct Config {
     pub tasks: BTreeMap<u64, TaskLink>,
     #[serde(default = "default_profiles")]
     pub profiles: BTreeMap<String, AgentProfile>,
+    #[serde(default = "default_terminal")]
+    pub terminal: TerminalConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,15 +52,24 @@ pub struct AgentProfile {
     pub args: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalConfig {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             server: None,
             token: None,
+            user_id: None,
             worktree_root: default_worktree_root(),
             projects: BTreeMap::new(),
             tasks: BTreeMap::new(),
             profiles: default_profiles(),
+            terminal: default_terminal(),
         }
     }
 }
@@ -136,6 +149,26 @@ fn default_profiles() -> BTreeMap<String, AgentProfile> {
             )
         })
         .collect()
+}
+
+fn default_terminal() -> TerminalConfig {
+    TerminalConfig {
+        command: if cfg!(windows) {
+            "wt.exe"
+        } else if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "x-terminal-emulator"
+        }
+        .into(),
+        args: if cfg!(target_os = "macos") {
+            vec!["-a".into(), "Terminal".into()]
+        } else if cfg!(all(unix, not(target_os = "macos"))) {
+            vec!["-e".into()]
+        } else {
+            Vec::new()
+        },
+    }
 }
 
 fn default_worktree_root() -> PathBuf {

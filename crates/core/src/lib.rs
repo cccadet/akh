@@ -5,6 +5,6 @@ pub mod git;
 pub mod launch;
 
 pub use backup::{BackupSummary, export_backup, import_backup};
-pub use config::{AgentProfile, Config, ProjectLink, TaskLink};
+pub use config::{AgentProfile, Config, ProjectLink, TaskLink, TerminalConfig};
 pub use conversation::{Conversation, Message, Role};
 pub use git::{GitRepository, WorktreeOutcome};
