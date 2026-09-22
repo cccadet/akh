@@ -19,6 +19,9 @@ Desktop.ini
 
 # Local logs
 *.log
+*.db
+*.db-shm
+*.db-wal
 
 # Rust build artifacts
 /target/

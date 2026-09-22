@@ -171,7 +171,7 @@ async fn update_task(
     Path(id): Path<i64>,
     Json(input): Json<UpdateTask>,
 ) -> ApiResult<Json<Task>> {
-    let task = sqlx::query_as("UPDATE tasks SET title=COALESCE($2,title), description=COALESCE($3,description), branch=COALESCE($4,branch), latest_commit=COALESCE($5,latest_commit), status=COALESCE($6,status), updated_at=now() WHERE id=$1 RETURNING *")
+    let task = sqlx::query_as("UPDATE tasks SET title=COALESCE($2,title), description=COALESCE($3,description), branch=COALESCE($4,branch), latest_commit=COALESCE($5,latest_commit), status=COALESCE($6,status), updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *")
         .bind(id).bind(input.title).bind(input.description).bind(input.branch).bind(input.latest_commit).bind(input.status)
         .fetch_optional(&state.db).await?.ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "task not found".into()))?;
     Ok(Json(task))
@@ -257,11 +257,13 @@ async fn end_session(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<AgentSession>> {
     Ok(Json(
-        sqlx::query_as("UPDATE agent_sessions SET ended_at=now() WHERE id=$1 RETURNING *")
-            .bind(id)
-            .fetch_optional(&state.db)
-            .await?
-            .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "session not found".into()))?,
+        sqlx::query_as(
+            "UPDATE agent_sessions SET ended_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *",
+        )
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "session not found".into()))?,
     ))
 }
 
@@ -312,7 +314,7 @@ async fn accept_handoff(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Handoff>> {
     let handoff = sqlx::query_as(
-        "UPDATE handoffs SET accepted_at=now() WHERE id=$1 AND to_user_id=$2 RETURNING *",
+        "UPDATE handoffs SET accepted_at=CURRENT_TIMESTAMP WHERE id=$1 AND to_user_id=$2 RETURNING *",
     )
     .bind(id)
     .bind(user.0)

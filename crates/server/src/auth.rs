@@ -129,7 +129,7 @@ pub async fn require_auth(
         .and_then(|value| value.strip_prefix("Bearer "))
         .ok_or_else(|| ApiError(StatusCode::UNAUTHORIZED, "missing bearer token".into()))?;
     let user_id = sqlx::query_scalar::<_, Uuid>(
-        "SELECT user_id FROM auth_tokens WHERE token = $1 AND expires_at > now()",
+        "SELECT user_id FROM auth_tokens WHERE token = $1 AND expires_at > CURRENT_TIMESTAMP",
     )
     .bind(token)
     .fetch_optional(&state.db)

@@ -65,7 +65,17 @@ parte do M2.
 
 ## M2: servidor e sincronização
 
-O servidor usa Axum, Tokio, SQLx e PostgreSQL. Para o ambiente local:
+O servidor usa Axum, Tokio e SQLx. Para uso individual, SQLite funciona sem
+Docker nem configuração adicional:
+
+```bash
+cargo run -p akh-local-server
+```
+
+Por padrão, o banco fica em `akh.db` (ignorado pelo Git). Para escolher outro
+arquivo, defina `DATABASE_URL`, por exemplo `sqlite://dados/akh.db`.
+
+Para equipes, use PostgreSQL:
 
 ```bash
 docker compose up -d
