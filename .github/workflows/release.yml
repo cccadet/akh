@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to rebuild (for example v0.1.2)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check tag matches application version
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           python3 - <<'PY'
           import json
@@ -90,7 +96,7 @@ jobs:
         run: npm run tauri build -- --config src-tauri/tauri.linux.conf.json
       - name: Pack standalone CLI and server for WSL/Linux
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           mkdir -p release-cli
           cp target/release/akh release-cli/akh
@@ -98,11 +104,11 @@ jobs:
           tar -C release-cli -czf "target/release/akh-${RELEASE_TAG}-linux-x86_64.tar.gz" akh akh-server
       - name: Verify Linux package and archive contents
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           package=$(find target/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)
           test -n "$package"
-          dpkg-deb -c "$package" | grep -E '/usr/bin/(akh|akh-server)$'
+          dpkg-deb -c "$package"
           dpkg-deb -x "$package" package-check
           test -x package-check/usr/bin/akh
           test -x package-check/usr/bin/akh-server
@@ -131,7 +137,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           mapfile -d '' -t assets < <(find release -type f -print0)
           if [ "${#assets[@]}" -eq 0 ]; then
