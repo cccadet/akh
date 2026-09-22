@@ -51,6 +51,8 @@ jobs:
       - name: Install frontend dependencies
         working-directory: apps/desktop
         run: npm ci
+      - name: Build CLI resource
+        run: cargo build --release --locked -p akh-cli
       - name: Build Windows installer with bundled CLI
         working-directory: apps/desktop
         run: npm run tauri build
@@ -81,6 +83,8 @@ jobs:
       - name: Install frontend dependencies
         working-directory: apps/desktop
         run: npm ci
+      - name: Build CLI resource
+        run: cargo build --release --locked -p akh-cli
       - name: Build Linux package with bundled CLI
         working-directory: apps/desktop
         run: npm run tauri build -- --config src-tauri/tauri.linux.conf.json

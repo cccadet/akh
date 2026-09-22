@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "akh-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "akh-client",
  "akh-core",
@@ -33,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "akh-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -45,7 +45,7 @@ dependencies = [
 
 [[package]]
 name = "akh-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -60,7 +60,7 @@ dependencies = [
 
 [[package]]
 name = "akh-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "akh-client",
  "akh-core",
@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "akh-local-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -93,7 +93,7 @@ dependencies = [
 
 [[package]]
 name = "akh-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "argon2",
