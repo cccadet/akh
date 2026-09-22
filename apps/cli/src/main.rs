@@ -94,6 +94,8 @@ struct TaskLinkArgs {
     project: String,
     #[arg(long)]
     branch: String,
+    #[arg(long)]
+    base: Option<String>,
 }
 
 #[derive(Args)]
@@ -104,6 +106,8 @@ struct TaskArgs {
     project: Option<String>,
     #[arg(long)]
     branch: Option<String>,
+    #[arg(long)]
+    base: Option<String>,
     #[arg(long)]
     prepare_only: bool,
 }
@@ -405,13 +409,21 @@ fn project(command: ProjectCommand) -> Result<()> {
 fn task_link(args: TaskLinkArgs) -> Result<()> {
     validate_name(&args.project, "project")?;
     GitRepository::validate_branch(&args.branch)?;
+    if let Some(base) = &args.base {
+        GitRepository::validate_branch(base.strip_prefix("origin/").unwrap_or(base))?;
+    }
     let mut config = Config::load()?;
-    config.project(&args.project)?;
+    let project = config.project(&args.project)?;
+    let base = match args.base {
+        Some(base) => base,
+        None => GitRepository::discover(&project.path)?.current_branch()?,
+    };
     config.tasks.insert(
         args.id,
         TaskLink {
             project: args.project,
             branch: args.branch,
+            base_branch: Some(base),
             title: format!("Task #{}", args.id),
             latest_commit: None,
             remote_id: None,
@@ -441,6 +453,7 @@ fn task(args: TaskArgs) -> Result<()> {
     validate_name(&agent, "agent profile")?;
     let mut config = Config::load()?;
     let task = config.task(id)?.clone();
+    let base_branch = args.base.as_deref().or(task.base_branch.as_deref());
     let project = config.project(&task.project)?.clone();
     let profile = config.profile(&agent)?.clone();
     let repo = GitRepository::discover(&project.path)?;
@@ -460,7 +473,13 @@ fn task(args: TaskArgs) -> Result<()> {
         .worktree_root
         .join(&task.project)
         .join(id.to_string());
-    let outcome = repo.ensure_worktree(&worktree, &task.branch)?;
+    let outcome = repo.ensure_worktree(&worktree, &task.branch, base_branch)?;
+    if let Some(base) = args.base {
+        if let Some(stored) = config.tasks.get_mut(&id) {
+            stored.base_branch = Some(base);
+        }
+        config.save()?;
+    }
     println!("task {id}: {outcome:?}");
     println!("worktree: {}", worktree.display());
 
@@ -525,15 +544,21 @@ fn task_create(args: TaskArgs) -> Result<()> {
         None => detect_linked_project(&config)?,
     };
     validate_name(&project, "project")?;
-    config.project(&project)?;
+    let linked = config.project(&project)?;
+    let base = match args.base {
+        Some(base) => base,
+        None => GitRepository::discover(&linked.path)?.current_branch()?,
+    };
     let id = config.tasks.keys().next_back().copied().unwrap_or(0) + 1;
     let branch = args.branch.unwrap_or_else(|| format!("task/{id}"));
     GitRepository::validate_branch(&branch)?;
+    GitRepository::validate_branch(base.strip_prefix("origin/").unwrap_or(&base))?;
     config.tasks.insert(
         id,
         TaskLink {
             project,
             branch,
+            base_branch: Some(base),
             title,
             latest_commit: None,
             remote_id: None,
@@ -688,6 +713,7 @@ fn sync() -> Result<()> {
                 TaskLink {
                     project: project_name.clone(),
                     branch: remote.branch,
+                    base_branch: remote.base_branch,
                     title: remote.title,
                     latest_commit: remote.latest_commit,
                     remote_id: Some(remote.id),
@@ -712,6 +738,7 @@ fn sync() -> Result<()> {
                         title: &task.title,
                         description: "",
                         branch: &task.branch,
+                        base_branch: task.base_branch.as_deref(),
                     })?
                     .id
             }
@@ -828,6 +855,12 @@ fn task_show(args: TaskArgs) -> Result<()> {
     println!("Task #{id}: {}", task.title);
     println!("Project: {}", task.project);
     println!("Branch: {}", task.branch);
+    println!(
+        "Base branch: {}",
+        task.base_branch
+            .as_deref()
+            .unwrap_or("<active branch when first opened>")
+    );
     println!(
         "Latest commit: {}",
         task.latest_commit.as_deref().unwrap_or("<not started>")

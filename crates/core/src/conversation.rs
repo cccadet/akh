@@ -114,6 +114,7 @@ mod tests {
         let task = TaskLink {
             project: "omni-sql".into(),
             branch: "task/183".into(),
+            base_branch: Some("main".into()),
             title: "Oracle Wallet".into(),
             latest_commit: None,
             remote_id: None,

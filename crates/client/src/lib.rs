@@ -188,6 +188,8 @@ pub struct Task {
     pub title: String,
     pub description: String,
     pub branch: String,
+    #[serde(default)]
+    pub base_branch: Option<String>,
     pub latest_commit: Option<String>,
     pub status: String,
 }
@@ -197,6 +199,7 @@ pub struct CreateTask<'a> {
     pub title: &'a str,
     pub description: &'a str,
     pub branch: &'a str,
+    pub base_branch: Option<&'a str>,
 }
 #[derive(Default, Serialize)]
 pub struct UpdateTask<'a> {

@@ -38,6 +38,7 @@ struct DesktopTask {
     title: String,
     project: String,
     branch: String,
+    base_branch: Option<String>,
     latest_commit: Option<String>,
     last_agent: Option<String>,
     synced: bool,
@@ -206,6 +207,7 @@ fn get_state() -> Result<DesktopState, String> {
                     title: task.title,
                     project: task.project,
                     branch: task.branch,
+                    base_branch: task.base_branch,
                     latest_commit: task.latest_commit,
                     last_agent,
                     synced: task.remote_id.is_some(),
@@ -364,7 +366,12 @@ fn link_project(path: String, name: Option<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn create_task(project: String, title: String, branch: Option<String>) -> Result<u64, String> {
+fn create_task(
+    project: String,
+    title: String,
+    branch: Option<String>,
+    base: Option<String>,
+) -> Result<u64, String> {
     akh_core::config::validate_name(&project, "project").map_err(to_string)?;
     let title = title.trim();
     if title.is_empty() {
@@ -372,17 +379,27 @@ fn create_task(project: String, title: String, branch: Option<String>) -> Result
     }
 
     let mut config = Config::load().map_err(to_string)?;
-    config.project(&project).map_err(to_string)?;
+    let linked = config.project(&project).map_err(to_string)?;
+    let base = match base.filter(|value| !value.trim().is_empty()) {
+        Some(base) => base,
+        None => GitRepository::discover(&linked.path)
+            .map_err(to_string)?
+            .current_branch()
+            .map_err(to_string)?,
+    };
     let id = config.tasks.keys().next_back().copied().unwrap_or(0) + 1;
     let branch = branch
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| format!("task/{id}"));
     GitRepository::validate_branch(&branch).map_err(to_string)?;
+    GitRepository::validate_branch(base.strip_prefix("origin/").unwrap_or(&base))
+        .map_err(to_string)?;
     config.tasks.insert(
         id,
         TaskLink {
             project,
             branch,
+            base_branch: Some(base),
             title: title.into(),
             latest_commit: None,
             remote_id: None,

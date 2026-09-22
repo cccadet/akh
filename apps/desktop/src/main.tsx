@@ -6,7 +6,7 @@ import "./styles.css";
 type Project = { name: string; path: string; repositoryUrl: string | null; synced: boolean };
 type Message = { role: string; agent: string; content: string; createdAt: number };
 type Handoff = { id: string; fromUserId: string; note: string };
-type Task = { id: number; title: string; project: string; branch: string; latestCommit: string | null; lastAgent: string | null; synced: boolean; dirty: boolean; commitPushed: boolean | null; messages: Message[]; pendingHandoffs: Handoff[] };
+type Task = { id: number; title: string; project: string; branch: string; baseBranch: string | null; latestCommit: string | null; lastAgent: string | null; synced: boolean; dirty: boolean; commitPushed: boolean | null; messages: Message[]; pendingHandoffs: Handoff[] };
 type Profile = { name: string; command: string; args: string[] };
 type User = { id: string; username: string; email: string };
 type Notification = { id: string; taskId: number | null; kind: string; content: string; createdAt: string };
@@ -21,6 +21,7 @@ function App() {
   const [taskTitle, setTaskTitle] = React.useState("");
   const [taskProject, setTaskProject] = React.useState("");
   const [taskBranch, setTaskBranch] = React.useState("");
+  const [taskBase, setTaskBase] = React.useState("");
   const [notice, setNotice] = React.useState("");
   const [terminalCommand, setTerminalCommand] = React.useState("");
   const [worktreeRoot, setWorktreeRoot] = React.useState("");
@@ -52,8 +53,8 @@ function App() {
     const project = taskProject || state?.projects[0]?.name;
     if (!project) { setError("Link a project before creating a task."); return; }
     try {
-      await invoke<number>("create_task", { project, title: taskTitle, branch: taskBranch || null });
-      setTaskTitle(""); setTaskBranch(""); await refresh();
+      await invoke<number>("create_task", { project, title: taskTitle, branch: taskBranch || null, base: taskBase || null });
+      setTaskTitle(""); setTaskBranch(""); setTaskBase(""); await refresh();
     } catch (e) { setError(String(e)); }
   }
 
@@ -140,9 +141,10 @@ function App() {
           </select>
           <input required aria-label="Task title" placeholder="Task title" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} />
           <input aria-label="Task branch" placeholder="Branch (automatic: task/ID)" value={taskBranch} onChange={(e) => setTaskBranch(e.target.value)} />
+          <input aria-label="Base branch" placeholder="Base branch (current branch if empty)" value={taskBase} onChange={(e) => setTaskBase(e.target.value)} />
           <button disabled={!state.projects.length}>Create task</button>
         </form>
-        <div className="tasks">{state.tasks.map((task) => <article key={task.id}><div className="task-row"><div className="task-id">#{task.id}</div><div className="task-copy"><h3>{task.title}</h3><p>{task.project} · {task.branch} · {task.lastAgent ?? "no agent yet"}</p><small>{task.synced ? "Conversation shared" : "Local only"} · {task.latestCommit?.slice(0,10) ?? "Not started"} · {task.dirty ? "⚠ uncommitted changes" : task.commitPushed === true ? "✓ commit pushed" : task.commitPushed === false ? "⚠ commit not pushed" : "no shared commit"}</small></div><div className="actions"><button onClick={() => handoff(task.id)}>Handoff</button>{state.profiles.map((profile) => <button className={profile.name === "codex" ? "primary" : ""} key={profile.name} onClick={() => launch(task.id,profile.name)}>{profile.name}</button>)}</div></div>{task.pendingHandoffs.map((handoff) => <div className="handoff" key={handoff.id}><span>Handoff from {handoff.fromUserId}: {handoff.note}</span><button onClick={() => acceptHandoff(handoff.id)}>Accept</button></div>)}{task.messages.length > 0 && <details><summary>Conversation · {task.messages.length} messages</summary><div className="conversation">{task.messages.map((message, index) => <div key={`${message.createdAt}-${index}`}><small>{message.agent} · {message.role}</small><p>{message.content}</p></div>)}</div></details>}</article>)}</div>
+        <div className="tasks">{state.tasks.map((task) => <article key={task.id}><div className="task-row"><div className="task-id">#{task.id}</div><div className="task-copy"><h3>{task.title}</h3><p>{task.project} · {task.branch} · base {task.baseBranch ?? "current"} · {task.lastAgent ?? "no agent yet"}</p><small>{task.synced ? "Conversation shared" : "Local only"} · {task.latestCommit?.slice(0,10) ?? "Not started"} · {task.dirty ? "⚠ uncommitted changes" : task.commitPushed === true ? "✓ commit pushed" : task.commitPushed === false ? "⚠ commit not pushed" : "no shared commit"}</small></div><div className="actions"><button onClick={() => handoff(task.id)}>Handoff</button>{state.profiles.map((profile) => <button className={profile.name === "codex" ? "primary" : ""} key={profile.name} onClick={() => launch(task.id,profile.name)}>{profile.name}</button>)}</div></div>{task.pendingHandoffs.map((handoff) => <div className="handoff" key={handoff.id}><span>Handoff from {handoff.fromUserId}: {handoff.note}</span><button onClick={() => acceptHandoff(handoff.id)}>Accept</button></div>)}{task.messages.length > 0 && <details><summary>Conversation · {task.messages.length} messages</summary><div className="conversation">{task.messages.map((message, index) => <div key={`${message.createdAt}-${index}`}><small>{message.agent} · {message.role}</small><p>{message.content}</p></div>)}</div></details>}</article>)}</div>
       </section>
       <section id="settings"><div className="section-title"><h2>Settings</h2></div><div className="settings"><label>Worktrees<strong>{state.worktreeRoot}</strong></label><label>Terminal<strong>{state.terminalCommand}</strong></label></div>
         <div className="auth-panel"><div><h3>Server and authentication</h3><p>{state.serverConfigured ? `Connected to ${state.server}` : "Use the embedded local server or a team server."}</p></div><input placeholder="Server URL" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} /><input placeholder="Email or username" value={identity} onChange={(e) => setIdentity(e.target.value)} /><input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} /><button onClick={() => authenticate("login_server")}>Login</button><button onClick={synchronize} disabled={!state.serverConfigured}>Sync now</button>{state.serverConfigured && <button onClick={logout}>Logout</button>}</div>

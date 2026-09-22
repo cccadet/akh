@@ -51,8 +51,8 @@ jobs:
       - name: Install frontend dependencies
         working-directory: apps/desktop
         run: npm ci
-      - name: Build CLI resource
-        run: cargo build --release --locked -p akh-cli
+      - name: Build CLI and PostgreSQL server
+        run: cargo build --release --locked -p akh-cli -p akh-server
       - name: Build Windows installer with bundled CLI
         working-directory: apps/desktop
         run: npm run tauri build
@@ -83,18 +83,31 @@ jobs:
       - name: Install frontend dependencies
         working-directory: apps/desktop
         run: npm ci
-      - name: Build CLI resource
-        run: cargo build --release --locked -p akh-cli
+      - name: Build CLI and PostgreSQL server
+        run: cargo build --release --locked -p akh-cli -p akh-server
       - name: Build Linux package with bundled CLI
         working-directory: apps/desktop
         run: npm run tauri build -- --config src-tauri/tauri.linux.conf.json
-      - name: Pack standalone CLI for WSL/Linux
+      - name: Pack standalone CLI and server for WSL/Linux
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           mkdir -p release-cli
           cp target/release/akh release-cli/akh
-          tar -C release-cli -czf "target/release/akh-${RELEASE_TAG}-linux-x86_64.tar.gz" akh
+          cp target/release/akh-server release-cli/akh-server
+          tar -C release-cli -czf "target/release/akh-${RELEASE_TAG}-linux-x86_64.tar.gz" akh akh-server
+      - name: Verify Linux package and archive contents
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          package=$(find target/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)
+          test -n "$package"
+          dpkg-deb -c "$package" | grep -E '/usr/bin/(akh|akh-server)$'
+          dpkg-deb -x "$package" package-check
+          test -x package-check/usr/bin/akh
+          test -x package-check/usr/bin/akh-server
+          package-check/usr/bin/akh --version
+          tar -tzf "target/release/akh-${RELEASE_TAG}-linux-x86_64.tar.gz" | grep -x akh-server
       - uses: actions/upload-artifact@v4
         with:
           name: akh-linux-x64

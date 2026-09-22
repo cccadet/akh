@@ -1,12 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Akh",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "identifier": "dev.akh.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
-    "beforeBundleCommand": "cargo build --release -p akh-cli",
+    "beforeBuildCommand": "cargo build --release -p akh-cli -p akh-server && npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -18,7 +17,8 @@
     "active": true,
     "targets": ["nsis"],
     "resources": {
-      "../../../target/release/akh.exe": "akh.exe"
+      "../../../target/release/akh.exe": "akh.exe",
+      "../../../target/release/akh-server.exe": "akh-server.exe"
     },
     "windows": {
       "nsis": {

@@ -25,7 +25,7 @@ cargo run -p akh-cli -- project detect
 cargo run -p akh-cli -- project link --name akh
 
 # Relaciona uma task à branch que será usada no worktree
-cargo run -p akh-cli -- task-link 183 --project akh --branch task/183
+cargo run -p akh-cli -- task-link 183 --project akh --branch task/183 --base main
 
 # Apenas prepara o worktree
 cargo run -p akh-cli -- task 183 codex --prepare-only
@@ -39,8 +39,13 @@ Dentro de um repositório já vinculado, `--project` é opcional ao criar uma
 task. O Akh detecta o projeto pelo diretório Git e pelo remote:
 
 ```bash
-akh task create "Implementar continuidade"
+akh task create "Implementar continuidade" --base develop
 ```
+
+`--base` é opcional. Sem ele, a task registra a branch atualmente ativa no
+repositório vinculado. Ao criar um worktree novo, Akh parte dessa branch; se a
+branch da task já existir, ele a reutiliza. Também é possível escolher a base
+na abertura: `akh task 183 codex --base main`.
 
 Por padrão, configuração e worktrees ficam abaixo de `~/.akh` e não entram no
 repositório. Para testes isolados, `AKH_CONFIG_HOME` pode apontar para outro
@@ -122,7 +127,8 @@ npm run tauri dev
 A interface mostra vínculos locais, tasks, estado local/compartilhado, último
 agente e launchers que abrem Claude ou Codex no terminal do sistema. Novas
 tasks podem ser criadas pela própria interface, escolhendo projeto, título e,
-opcionalmente, branch.
+opcionalmente, branch da task e branch base. Se a base não for preenchida, usa
+a branch ativa do projeto vinculado.
 
 Em **Settings** também é possível registrar/login, sincronizar, configurar o
 terminal, escolher a raiz dos worktrees e criar profiles de agentes. Por
@@ -177,23 +183,39 @@ oferece a ação de handoff e diferencia estado local de estado compartilhado.
 O workflow [Release](.github/workflows/release.yml) roda ao enviar uma tag
 `vX.Y.Z`. A versão da tag deve corresponder às versões do workspace Rust,
 Tauri e frontend. A publicação só ocorre após os builds Windows e Linux
-terminarem com sucesso. A Release contém o instalador Windows com a CLI,
-um pacote `.deb` para Linux e um arquivo `akh-vX.Y.Z-linux-x86_64.tar.gz`
-com a CLI independente para Linux/WSL.
+terminarem com sucesso. A Release contém o instalador Windows com a CLI e o
+servidor PostgreSQL,
+um pacote `.deb` para Linux com `akh`, `akh-server` e a GUI, e um arquivo
+`akh-vX.Y.Z-linux-x86_64.tar.gz` com a CLI e o servidor independentes para
+Linux/WSL.
 
 Para publicar a versão atual, após enviar os commits desejados:
 
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 No WSL x86_64, baixe o arquivo da página de Releases, extraia `akh` e
 coloque-o em um diretório do `PATH`:
 
 ```bash
-tar -xzf akh-v0.1.1-linux-x86_64.tar.gz
+tar -xzf akh-v0.1.2-linux-x86_64.tar.gz
 install -Dm755 akh "$HOME/.local/bin/akh"
+install -Dm755 akh-server "$HOME/.local/bin/akh-server"
 fish_add_path "$HOME/.local/bin" # Fish; no Bash, exporte PATH="$HOME/.local/bin:$PATH"
 akh --version
 ```
+
+Para usar PostgreSQL no Ubuntu, inicie o banco e rode o servidor em outra
+porta, já que o Desktop usa `127.0.0.1:3000` para o SQLite local. No Fish:
+
+```fish
+set -x DATABASE_URL 'postgres://akh:SENHA@127.0.0.1:5432/akh'
+set -x AKH_BIND 127.0.0.1:3001
+akh-server
+```
+
+O servidor roda em primeiro plano; configure um serviço systemd se quiser que
+ele continue após fechar o terminal. Na GUI, use `http://127.0.0.1:3001` em
+Settings para conectar ao servidor de equipe.

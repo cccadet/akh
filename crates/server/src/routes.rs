@@ -99,6 +99,7 @@ struct Task {
     title: String,
     description: String,
     branch: String,
+    base_branch: Option<String>,
     latest_commit: Option<String>,
     status: String,
     created_by: Uuid,
@@ -112,6 +113,7 @@ struct CreateTask {
     #[serde(default)]
     description: String,
     branch: String,
+    base_branch: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -150,8 +152,8 @@ async fn create_task(
     Extension(user): Extension<CurrentUser>,
     Json(input): Json<CreateTask>,
 ) -> ApiResult<(StatusCode, Json<Task>)> {
-    let task = sqlx::query_as("INSERT INTO tasks (project_id, title, description, branch, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *")
-        .bind(input.project_id).bind(input.title).bind(input.description).bind(input.branch).bind(user.0)
+    let task = sqlx::query_as("INSERT INTO tasks (project_id, title, description, branch, base_branch, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *")
+        .bind(input.project_id).bind(input.title).bind(input.description).bind(input.branch).bind(input.base_branch).bind(user.0)
         .fetch_one(&state.db).await?;
     Ok((StatusCode::CREATED, Json(task)))
 }

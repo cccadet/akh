@@ -38,6 +38,8 @@ pub struct TaskLink {
     pub project: String,
     pub branch: String,
     #[serde(default)]
+    pub base_branch: Option<String>,
+    #[serde(default)]
     pub title: String,
     #[serde(default)]
     pub latest_commit: Option<String>,

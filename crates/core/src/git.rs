@@ -37,6 +37,11 @@ impl GitRepository {
         git_output(&self.root, &["rev-parse", "HEAD"])
     }
 
+    pub fn current_branch(&self) -> Result<String> {
+        git_output(&self.root, &["symbolic-ref", "--short", "HEAD"])
+            .context("repository has no active branch; choose a base branch explicitly")
+    }
+
     pub fn is_clean(&self) -> Result<bool> {
         Ok(git_output(&self.root, &["status", "--porcelain"])?.is_empty())
     }
@@ -70,12 +75,25 @@ impl GitRepository {
         Ok(())
     }
 
-    pub fn ensure_worktree(&self, destination: &Path, branch: &str) -> Result<WorktreeOutcome> {
+    pub fn ensure_worktree(
+        &self,
+        destination: &Path,
+        branch: &str,
+        base_branch: Option<&str>,
+    ) -> Result<WorktreeOutcome> {
+        Self::validate_branch(branch)?;
         if destination.exists() {
             let existing = Self::discover(destination)?;
             if existing.root != canonical(destination)? {
                 bail!(
                     "{} exists but is not the expected worktree",
+                    destination.display()
+                );
+            }
+            let checked_out = git_output(destination, &["symbolic-ref", "--short", "HEAD"])?;
+            if checked_out != branch {
+                bail!(
+                    "{} is on branch '{checked_out}', expected '{branch}'",
                     destination.display()
                 );
             }
@@ -111,9 +129,39 @@ impl GitRepository {
             return Ok(WorktreeOutcome::CreatedFromRemoteBranch);
         }
 
+        let current = self.current_branch().ok();
+        let implicit_base = if base_branch.is_none() {
+            Some(self.current_branch()?)
+        } else {
+            None
+        };
+        let base = base_branch.or(implicit_base.as_deref()).unwrap();
+        let force_remote = base.starts_with("origin/");
+        let base = base.strip_prefix("origin/").unwrap_or(base);
+        Self::validate_branch(base)?;
+        let remote_base = format!("origin/{base}");
+        let start = if !force_remote
+            && current.as_deref() == Some(base)
+            && ref_exists(&self.root, &format!("refs/heads/{base}"))
+        {
+            base.to_owned()
+        } else if ref_exists(&self.root, &format!("refs/remotes/{remote_base}")) {
+            remote_base
+        } else if ref_exists(&self.root, &format!("refs/heads/{base}")) {
+            base.to_owned()
+        } else {
+            bail!("base branch '{base}' does not exist locally or on origin");
+        };
         git_status(
             &self.root,
-            &["worktree", "add", "-b", branch, path_arg(destination)?],
+            &[
+                "worktree",
+                "add",
+                "-b",
+                branch,
+                path_arg(destination)?,
+                &start,
+            ],
         )?;
         Ok(WorktreeOutcome::CreatedNewBranch)
     }
@@ -187,14 +235,18 @@ mod tests {
         assert!(discovered.origin.is_none());
 
         let worktree = temp.path().join("worktrees").join("1");
-        let outcome = discovered.ensure_worktree(&worktree, "task/1").unwrap();
+        let outcome = discovered
+            .ensure_worktree(&worktree, "task/1", Some("main"))
+            .unwrap();
         assert_eq!(outcome, WorktreeOutcome::CreatedNewBranch);
         assert_eq!(
             GitRepository::discover(&worktree).unwrap().root,
             worktree.canonicalize().unwrap()
         );
         assert_eq!(
-            discovered.ensure_worktree(&worktree, "task/1").unwrap(),
+            discovered
+                .ensure_worktree(&worktree, "task/1", Some("main"))
+                .unwrap(),
             WorktreeOutcome::Existing
         );
     }
@@ -204,6 +256,53 @@ mod tests {
         assert!(GitRepository::validate_branch("task/183").is_ok());
         assert!(GitRepository::validate_branch("--upload-pack=bad").is_err());
         assert!(GitRepository::validate_branch("bad..branch").is_err());
+    }
+
+    #[test]
+    fn creates_new_branch_from_selected_base_instead_of_current_head() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_path = temp.path().join("repo");
+        fs::create_dir(&repo_path).unwrap();
+        run(&repo_path, &["init", "-b", "main"]);
+        run(&repo_path, &["config", "user.name", "Akh Test"]);
+        run(
+            &repo_path,
+            &["config", "user.email", "akh-test@example.invalid"],
+        );
+        fs::write(repo_path.join("base.txt"), "main").unwrap();
+        run(&repo_path, &["add", "."]);
+        run(&repo_path, &["commit", "-m", "base"]);
+        let main_commit = git_output(&repo_path, &["rev-parse", "HEAD"]).unwrap();
+        run(&repo_path, &["checkout", "-b", "develop"]);
+        fs::write(repo_path.join("base.txt"), "develop").unwrap();
+        run(&repo_path, &["commit", "-am", "develop"]);
+
+        let repo = GitRepository::discover(&repo_path).unwrap();
+        let missing = temp.path().join("missing");
+        assert_eq!(
+            repo.ensure_worktree(&missing, "task/missing", None)
+                .unwrap(),
+            WorktreeOutcome::CreatedNewBranch
+        );
+        assert_eq!(
+            git_output(&missing, &["rev-parse", "HEAD"]).unwrap(),
+            repo.head().unwrap()
+        );
+
+        let worktree = temp.path().join("task");
+        assert_eq!(
+            repo.ensure_worktree(&worktree, "task/1", Some("main"))
+                .unwrap(),
+            WorktreeOutcome::CreatedNewBranch
+        );
+        assert_eq!(
+            git_output(&worktree, &["rev-parse", "HEAD"]).unwrap(),
+            main_commit
+        );
+        assert_eq!(
+            git_output(&worktree, &["symbolic-ref", "--short", "HEAD"]).unwrap(),
+            "task/1"
+        );
     }
 
     fn run(repo: &Path, args: &[&str]) {

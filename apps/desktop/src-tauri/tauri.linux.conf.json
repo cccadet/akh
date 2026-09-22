@@ -1,6 +1,14 @@
 {
   "bundle": {
     "targets": ["deb"],
-    "resources": ["../../../target/release/akh"]
+    "resources": [],
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/bin/akh": "../../../target/release/akh",
+          "/usr/bin/akh-server": "../../../target/release/akh-server"
+        }
+      }
+    }
   }
 }
