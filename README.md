@@ -108,7 +108,9 @@ npm run tauri dev
 ```
 
 A interface mostra vínculos locais, tasks, estado local/compartilhado, último
-agente e launchers que abrem Claude ou Codex no terminal do sistema.
+agente e launchers que abrem Claude ou Codex no terminal do sistema. Novas
+tasks podem ser criadas pela própria interface, escolhendo projeto, título e,
+opcionalmente, branch.
 
 O aplicativo Desktop inicia automaticamente o servidor SQLite embutido em
 `127.0.0.1:3000`. O banco é salvo no diretório de dados do aplicativo e não

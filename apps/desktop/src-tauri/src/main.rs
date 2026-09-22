@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use akh_core::{Config, GitRepository, ProjectLink};
+use akh_core::{Config, GitRepository, ProjectLink, TaskLink};
 use serde::Serialize;
 use sqlx::sqlite::SqliteConnectOptions;
 use tauri::Manager;
@@ -105,6 +105,35 @@ fn link_project(path: String, name: Option<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn create_task(project: String, title: String, branch: Option<String>) -> Result<u64, String> {
+    akh_core::config::validate_name(&project, "project").map_err(to_string)?;
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("task title is required".into());
+    }
+
+    let mut config = Config::load().map_err(to_string)?;
+    config.project(&project).map_err(to_string)?;
+    let id = config.tasks.keys().next_back().copied().unwrap_or(0) + 1;
+    let branch = branch
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| format!("task/{id}"));
+    GitRepository::validate_branch(&branch).map_err(to_string)?;
+    config.tasks.insert(
+        id,
+        TaskLink {
+            project,
+            branch,
+            title: title.into(),
+            latest_commit: None,
+            remote_id: None,
+        },
+    );
+    config.save().map_err(to_string)?;
+    Ok(id)
+}
+
+#[tauri::command]
 fn launch_task(id: u64, agent: String) -> Result<(), String> {
     akh_core::config::validate_name(&agent, "agent").map_err(to_string)?;
     let config = Config::load().map_err(to_string)?;
@@ -177,6 +206,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_state,
             link_project,
+            create_task,
             launch_task,
             handoff_task
         ])
